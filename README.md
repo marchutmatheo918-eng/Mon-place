@@ -40,6 +40,24 @@ Choisis la durée, puis « 📹 Créer la vidéo » pour télécharger une vidé
 
 Bouton 🏆 en haut : les 20 joueurs qui ont posé le plus de pixels, sur 24 heures ou depuis le début.
 
+## Identifiant des joueurs
+
+Chaque joueur reçoit un identifiant unique (ex : `#K7Q2MX`), affiché à côté de son pseudo en haut de l'écran
+et sur chaque pixel qu'il pose. Il est créé et signé par le serveur, et gardé dans le navigateur du joueur :
+personne ne peut prendre l'identifiant d'un autre.
+
+En modération :
+- l'identifiant s'affiche dans la bulle des pixels et à côté des messages du chat ;
+- « Bannir » depuis la bulle ou le chat bannit l'identifiant, le pseudo et les adresses IP liées ;
+- les formulaires « Bannir un joueur » et « Annuler les pixels d'un joueur » acceptent un pseudo ou un `#ID`.
+
+Le secret qui signe les identifiants est créé automatiquement et gardé dans la base (on peut aussi le fixer avec la variable `ID_SECRET`).
+
+## Remettre le classement à zéro (modération)
+
+Panneau 🛡️ → « 🏆 Classement » → « Remettre le classement à zéro ». Tout le monde repart de 0 dans le classement ;
+les pixels de la toile et le timelapse ne changent pas.
+
 ## Dessiner une image (modération)
 
 Dans le panneau 🛡️ : « 🖼️ Dessiner une image ».
@@ -124,6 +142,7 @@ Le fichier `place.db` doit être sur un disque permanent : sur Railway, ajoute u
 
 Le numéro de version s'affiche en bas à droite du site.
 
+- **v0.16** : identifiant unique par joueur (visible sur les pixels, bannissement par #ID), remise à zéro du classement
 - **v0.15** : bruitage quand on pose un pixel (bouton 🔊/🔇), viseur plus serré
 - **v0.14** : overlay pour les joueurs (image affichée par-dessus la toile pour recopier un dessin)
 - **v0.13** : outil modo « Dessiner une image » (aperçu, taille, vitesse, suivi et arrêt)

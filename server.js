@@ -11,7 +11,7 @@ const { WebSocketServer } = require("ws");
 const db = require("./db");
 
 // ---- Version (à augmenter à chaque mise à jour) ----
-const VERSION = "0.15";
+const VERSION = "0.16";
 
 // ---- Réglages ----
 const PORT = process.env.PORT || 3000;
@@ -56,12 +56,33 @@ function reloadGrid() {
 }
 reloadGrid();
 
+// ---- Identifiant unique de chaque joueur ----
+// Le serveur crée un identifiant (ex : K7Q2MX) et le signe. Le navigateur le garde et le renvoie
+// à chaque connexion : impossible de prendre l'identifiant de quelqu'un d'autre sans sa signature.
+let ID_SECRET = process.env.ID_SECRET || db.getSetting("id_secret");
+if (!ID_SECRET) { ID_SECRET = crypto.randomBytes(32).toString("hex"); db.setSetting("id_secret", ID_SECRET); }
+const PID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sans 0/O ni 1/I pour éviter les confusions
+const PID_RE = /^[A-HJ-NP-Z2-9]{6}$/;
+const signPid = (pid) => crypto.createHmac("sha256", ID_SECRET).update(pid).digest("base64url").slice(0, 16);
+function newPid() {
+  const bytes = crypto.randomBytes(6);
+  return [...bytes].map((b) => PID_ALPHABET[b % PID_ALPHABET.length]).join("");
+}
+function pidFromToken(token) {
+  const [pid, sig] = String(token || "").split(".");
+  if (!PID_RE.test(pid || "") || !sig) return null;
+  const good = signPid(pid);
+  return sig.length === good.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good)) ? pid : null;
+}
+const cleanPid = (v) => { const p = String(v || "").trim().replace(/^#/, "").toUpperCase(); return PID_RE.test(p) ? p : null; };
+
 // ---- Bans en mémoire ----
-let bannedIps = new Set(), bannedNames = new Set();
+let bannedIps = new Set(), bannedNames = new Set(), bannedPids = new Set();
 function reloadBans() {
-  bannedIps = new Set(); bannedNames = new Set();
+  bannedIps = new Set(); bannedNames = new Set(); bannedPids = new Set();
   for (const b of db.allBans()) {
     if (b.kind === "ip") bannedIps.add(b.value);
+    else if (b.kind === "pid") bannedPids.add(b.value);
     else bannedNames.add(b.value.toLowerCase());
   }
 }
@@ -87,7 +108,7 @@ function canvasClosed(now = Date.now()) {
   return null;
 }
 
-const isBanned = (ip, name) => bannedIps.has(ip) || (name && bannedNames.has(name.toLowerCase()));
+const isBanned = (ip, name, pid) => bannedIps.has(ip) || (pid && bannedPids.has(pid)) || (name && bannedNames.has(name.toLowerCase()));
 
 // ---- HTTP ----
 const app = express();
@@ -146,7 +167,7 @@ app.get("/pixel", rateLimit("pixel", 80), (req, res) => {
   if (!Number.isInteger(x) || !Number.isInteger(y)) return res.status(400).json({ error: "coordonnées invalides" });
   const p = db.getPixel(x, y);
   if (!p) return res.json({ x, y, empty: true });
-  res.json({ x, y, color: p.color, user: p.user, placedAt: p.placed_at, userTotal: db.pixelsByUser(p.user) });
+  res.json({ x, y, color: p.color, user: p.user, pid: p.pid || null, placedAt: p.placed_at, userTotal: db.pixelsByUser(p.user) });
 });
 
 app.get("/stats", rateLimit("stats", 15), (req, res) => res.json(db.stats()));
@@ -192,7 +213,7 @@ function passwordOk(given) {
 // Déconnecte proprement les clients bannis (ils peuvent encore regarder)
 function notifyBanned() {
   for (const c of wss.clients) {
-    if (isBanned(c.ip, c.user)) send(c, { type: "banned" });
+    if (isBanned(c.ip, c.user, c.pid)) send(c, { type: "banned" });
   }
 }
 
@@ -233,21 +254,33 @@ const modActions = {
     }
   },
 
+  // Bannir : m.pid (identifiant, prioritaire) et/ou m.user (pseudo).
+  // On bannit l'identifiant, le pseudo et toutes les adresses IP liées.
   ban(ws, m) {
-    const user = cleanName(m.user);
-    if (!user) return send(ws, { type: "notice", text: "Pseudo invalide" });
+    const pid = cleanPid(m.pid) || (/^#/.test(String(m.user || "").trim()) ? cleanPid(m.user) : null);
+    let user = pid ? null : cleanName(m.user);
+    if (!pid && !user) return send(ws, { type: "notice", text: "Pseudo ou identifiant (#XXXXXX) invalide" });
+    if (pid && pid === ws.pid) return send(ws, { type: "notice", text: "Tu ne peux pas te bannir toi-même" });
+    const name = user || cleanName(m.user) || db.lastNameOfPid(pid);
+    const label = name ? (pid ? `${name} #${pid}` : name) : `#${pid}`;
     const reason = String(m.reason || "").slice(0, 100);
-    db.addBan("name", user, user, reason);
-    const ips = db.ipsOfUser(user).filter((ip) => ip !== ws.ip); // ne jamais se bannir soi-même
-    for (const ip of ips) db.addBan("ip", ip, user, reason);
+    const pids = new Set(pid ? [pid] : db.pidsOfUser(user));
+    pids.delete(ws.pid); // ne jamais se bannir soi-même
+    const ips = new Set(user ? db.ipsOfUser(user) : []);
+    for (const p of pids) for (const ip of db.ipsOfPid(p)) ips.add(ip);
+    ips.delete(ws.ip);
+    if (name && !pid) db.addBan("name", name, label, reason);
+    for (const p of pids) db.addBan("pid", p, label, reason);
+    for (const ip of ips) db.addBan("ip", ip, label, reason);
     reloadBans();
     if (m.deleteChat) {
-      db.deleteChatOfUser(user);
+      if (user) db.deleteChatOfUser(user);
+      for (const p of pids) db.deleteChatOfPid(p);
       broadcastJson({ type: "chatHistory", msgs: db.recentChat(CHAT_HISTORY) });
     }
-    db.log("ban", { user, reason, ips: ips.length }, ws.ip);
+    db.log("ban", { user: name, pids: [...pids], reason, ips: ips.size }, ws.ip);
     notifyBanned();
-    send(ws, { type: "notice", text: `${user} est banni (${ips.length} adresse${ips.length > 1 ? "s" : ""} IP)` });
+    send(ws, { type: "notice", text: `${label} est banni (${pids.size} identifiant${pids.size > 1 ? "s" : ""}, ${ips.size} adresse${ips.size > 1 ? "s" : ""} IP)` });
     for (const c of wss.clients) if (c.isAdmin) sendBans(c);
   },
 
@@ -261,18 +294,28 @@ const modActions = {
     send(ws, { type: "notice", text: `${b.user || b.value} est débanni` });
     for (const c of wss.clients) {
       if (c.isAdmin) sendBans(c);
-      if (!isBanned(c.ip, c.user)) send(c, { type: "unbanned" });
+      if (!isBanned(c.ip, c.user, c.pid)) send(c, { type: "unbanned" });
     }
   },
 
   rollback(ws, m) {
-    const user = cleanName(m.user);
-    if (!user) return send(ws, { type: "notice", text: "Pseudo invalide" });
-    const n = db.rollbackUser(user, ws.ip);
+    const pid = cleanPid(m.pid) || (/^#/.test(String(m.user || "").trim()) ? cleanPid(m.user) : null);
+    const user = pid ? null : cleanName(m.user);
+    if (!pid && !user) return send(ws, { type: "notice", text: "Pseudo ou identifiant (#XXXXXX) invalide" });
+    const n = pid ? db.rollbackPid(pid, ws.ip) : db.rollbackUser(user, ws.ip);
+    const who = pid ? `#${pid}` : user;
     reloadGrid();
     broadcast(grid);
-    db.log("rollback", { user, pixels: n }, ws.ip);
-    send(ws, { type: "notice", text: `${n} pixel${n > 1 ? "s" : ""} de ${user} annulé${n > 1 ? "s" : ""}` });
+    db.log("rollback", { user, pid, pixels: n }, ws.ip);
+    send(ws, { type: "notice", text: `${n} pixel${n > 1 ? "s" : ""} de ${who} annulé${n > 1 ? "s" : ""}` });
+  },
+
+  resetLeaderboard(ws) {
+    const now = Date.now();
+    db.setSetting("leaderboard_since", now);
+    db.log("resetLeaderboard", {}, ws.ip);
+    broadcastJson({ type: "leaderboardReset", since: now });
+    send(ws, { type: "notice", text: "Classement remis à zéro" });
   },
 
   clearZone(ws, m) {
@@ -387,6 +430,12 @@ wss.on("connection", (ws, req) => {
   ws.rate = { n: 0, reset: Date.now() + 1000 };
   ws.isAdmin = false;
   ws.user = null;
+  // Identifiant du joueur : repris de son navigateur (?t=…) ou créé
+  let token = null;
+  try { token = new URL(req.url, "http://x").searchParams.get("t"); } catch {}
+  ws.pid = pidFromToken(token);
+  if (!ws.pid) ws.pid = newPid();
+  send(ws, { type: "you", pid: ws.pid, token: `${ws.pid}.${signPid(ws.pid)}` });
 
   ws.send(grid); // grille complète en binaire
   const wait = Math.max(0, (lastPlaced.get(ws.ip) || 0) + currentCooldown() - Date.now());
@@ -394,7 +443,8 @@ wss.on("connection", (ws, req) => {
   send(ws, { type: "chatHistory", msgs: db.recentChat(CHAT_HISTORY) });
   send(ws, { type: "announce", a: announcement });
   send(ws, { type: "event", e: event });
-  if (isBanned(ws.ip)) send(ws, { type: "banned" });
+  if (isBanned(ws.ip, null, ws.pid)) send(ws, { type: "banned" });
+  send(ws, { type: "leaderboardReset", since: Number(db.getSetting("leaderboard_since")) || 0 });
   broadcastOnline();
 
   ws.on("message", (raw) => {
@@ -440,7 +490,7 @@ wss.on("connection", (ws, req) => {
     if (msg.type === "place" || msg.type === "chat") {
       if (!user) return send(ws, { type: "error", message: "Choisis un pseudo (2 caractères minimum)" });
       ws.user = user;
-      if (!ws.isAdmin && isBanned(ws.ip, user)) return send(ws, { type: "banned" });
+      if (!ws.isAdmin && isBanned(ws.ip, user, ws.pid)) return send(ws, { type: "banned" });
     }
 
     // ----- Poser un pixel -----
@@ -456,8 +506,8 @@ wss.on("connection", (ws, req) => {
       }
       lastPlaced.set(ws.ip, now);
       grid[y * WIDTH + x] = c;
-      db.placePixel(x, y, c, user, ws.ip, now);
-      broadcastJson({ type: "pixel", x, y, c, user, t: now });
+      db.placePixel(x, y, c, user, ws.ip, now, ws.pid);
+      broadcastJson({ type: "pixel", x, y, c, user, pid: ws.pid, t: now });
       send(ws, { type: "cooldown", wait: ws.isAdmin ? 0 : cd });
     }
 
@@ -470,8 +520,8 @@ wss.on("connection", (ws, req) => {
         return send(ws, { type: "error", message: "Doucement ! Attends un peu avant d'écrire" });
       }
       lastChat.set(ws.ip, now);
-      const id = Number(db.addChat(user, text, ws.ip, ws.isAdmin, now));
-      broadcastJson({ type: "chat", msg: { id, user, text, is_mod: ws.isAdmin ? 1 : 0, sent_at: now } });
+      const id = Number(db.addChat(user, text, ws.ip, ws.isAdmin, now, ws.pid));
+      broadcastJson({ type: "chat", msg: { id, user, text, is_mod: ws.isAdmin ? 1 : 0, sent_at: now, pid: ws.pid } });
     }
   });
 

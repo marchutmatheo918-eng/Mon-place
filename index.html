@@ -140,6 +140,11 @@
   #askOk.danger { background: #e50000; }
   #board.zone { cursor: cell; }
   #version { position: fixed; right: 8px; bottom: 6px; font-size: 11px; color: #888; z-index: 1; pointer-events: none; }
+  .pid { font-family: ui-monospace, Menlo, monospace; font-size: .85em; color: #888; font-weight: 600; }
+  #mePid { margin-left: 4px; cursor: help; }
+  .msg .pid { display: none; margin-right: 4px; }
+  body.admin .msg .pid { display: inline; }
+  #lbSince { font-size: 12px; color: #777; margin-top: -6px; }
   #toast { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); background: #222; color: #fff;
            padding: 10px 16px; border-radius: 10px; font-size: 14px; display: none; z-index: 20; }
   #bannedBar { position: fixed; top: 0; left: 0; right: 0; background: #c00; color: #fff; text-align: center;
@@ -211,7 +216,7 @@
 <div id="top" class="bar">
   <span><span id="conn" class="dot"></span><span id="online">0</span> en ligne</span>
   <span id="coords">(–, –)</span>
-  <span>Pseudo : <span id="me" title="Changer de pseudo">–</span></span>
+  <span>Pseudo : <span id="me" title="Changer de pseudo">–</span><span id="mePid" class="pid" title="Ton identifiant unique"></span></span>
   <button id="soundBtn" class="iconBtn" title="Couper / remettre le son">🔊</button>
   <button id="tplBtn" class="iconBtn" title="Overlay">🖼️</button>
   <button id="lbBtn" class="iconBtn" title="Classement">🏆</button>
@@ -311,6 +316,10 @@
   <div class="row"><label><input type="checkbox" id="evLock"> Toile fermée avant et après</label></div>
   <div class="row"><button class="red" id="evBtn" style="background:#4b2bd6">Programmer</button><button class="grey" id="evClear">Supprimer</button></div>
 
+  <h4>🏆 Classement</h4>
+  <div id="lbStatus" class="muted" style="font-size:12px;margin-bottom:6px"></div>
+  <div class="row"><button class="red" id="lbReset">Remettre le classement à zéro</button></div>
+
   <h4>Effacer une zone</h4>
   <div class="row"><button class="grey" id="zoneDrawBtn" style="width:100%">✏️ Dessiner la zone sur la toile</button></div>
   <div class="row muted" style="font-size:12px">ou entre les coordonnées des deux coins :</div>
@@ -324,14 +333,14 @@
   </div>
   <div class="row"><button class="red" id="clearZoneBtn">Effacer la zone</button></div>
 
-  <h4>Bannir un pseudo</h4>
-  <div class="row"><input id="banName" placeholder="Pseudo"></div>
+  <h4>Bannir un joueur</h4>
+  <div class="row"><input id="banName" placeholder="Pseudo ou #ID"></div>
   <div class="row"><input id="banReason" placeholder="Raison (facultatif)"></div>
   <div class="row"><label><input type="checkbox" id="banChat" checked> supprimer ses messages</label></div>
   <div class="row"><button class="red" id="banBtn">Bannir</button></div>
 
-  <h4>Annuler les pixels d'un pseudo</h4>
-  <div class="row"><input id="rbName" placeholder="Pseudo"><button class="red" id="rbBtn">Annuler</button></div>
+  <h4>Annuler les pixels d'un joueur</h4>
+  <div class="row"><input id="rbName" placeholder="Pseudo ou #ID"><button class="red" id="rbBtn">Annuler</button></div>
 
   <h4>Bannis</h4>
   <div id="banList"><span class="muted">Personne</span></div>
@@ -363,6 +372,7 @@
 <div id="lbModal" class="modal">
   <div class="box">
     <h2>🏆 Classement</h2>
+    <div id="lbSince"></div>
     <div id="lbTabs"><button data-p="24h" class="on">24 heures</button><button data-p="all">Depuis le début</button></div>
     <div id="lbList"></div>
     <div id="lbMe"></div>
@@ -635,7 +645,7 @@
     if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
     return "le " + new Date(t).toLocaleDateString("fr-FR");
   }
-  let infoReq = 0, selAuthor = null;
+  let infoReq = 0, selAuthor = null, selPid = null;
   function positionBubble() {
     const b = $("bubble");
     if (!sel) { b.style.display = "none"; return; }
@@ -647,7 +657,7 @@
     b.style.top = (p.y - pad - 10) + "px";
   }
   async function showInfo() {
-    selAuthor = null; renderBubbleMod();
+    selAuthor = null; selPid = null; renderBubbleMod();
     if (!sel) return positionBubble();
     const req = ++infoReq, { x, y } = sel;
     $("bubbleText").innerHTML = `<span class="muted">(${x}, ${y})</span>`;
@@ -657,8 +667,8 @@
     if (p.empty) {
       $("bubbleText").innerHTML = `<span class="muted">(${x}, ${y}) · case vide</span>`;
     } else {
-      selAuthor = p.user;
-      $("bubbleText").innerHTML = `<b>${esc(p.user)}</b> <span class="muted">· ${ago(p.placedAt)}</span><br><span class="muted">(${x}, ${y})</span>`;
+      selAuthor = p.user; selPid = p.pid || null;
+      $("bubbleText").innerHTML = `<b>${esc(p.user)}</b>${p.pid ? ` <span class="pid">#${esc(p.pid)}</span>` : ""} <span class="muted">· ${ago(p.placedAt)}</span><br><span class="muted">(${x}, ${y})</span>`;
     }
     renderBubbleMod(); positionBubble();
   }
@@ -668,9 +678,9 @@
     if (box.hidden) return;
     box.innerHTML = "";
     const b1 = document.createElement("button"); b1.className = "small red"; b1.textContent = "Bannir";
-    b1.onclick = () => askBan(selAuthor);
+    b1.onclick = () => askBan(selAuthor, selPid);
     const b2 = document.createElement("button"); b2.className = "small grey"; b2.textContent = "Annuler ses pixels";
-    b2.onclick = () => askRollback(selAuthor);
+    b2.onclick = () => askRollback(selAuthor, selPid);
     box.append(b1, b2);
   }
 
@@ -1060,10 +1070,10 @@
     const d = document.createElement("div");
     d.className = "msg"; d.dataset.id = m.id;
     d.innerHTML = (m.is_mod ? '<span class="modtag">MODO</span>' : "") +
-      `<span class="who" style="color:${nameColor(m.user)}">${esc(m.user)}</span>${esc(m.text)}` +
+      `<span class="who" style="color:${nameColor(m.user)}">${esc(m.user)}</span>${m.pid ? `<span class="pid">#${esc(m.pid)}</span>` : ""}${esc(m.text)}` +
       `<span class="tools"><button title="Supprimer" data-act="del">🗑️</button><button title="Bannir" data-act="ban">🚫</button></span>`;
     d.querySelector('[data-act="del"]').onclick = () => wsSend({ type: "mod", action: "deleteChat", id: m.id });
-    d.querySelector('[data-act="ban"]').onclick = () => askBan(m.user);
+    d.querySelector('[data-act="ban"]').onclick = () => askBan(m.user, m.pid);
     msgsEl.appendChild(d);
     while (msgsEl.children.length > 200) msgsEl.firstChild.remove();
     if (scroll && atBottom) msgsEl.scrollTop = msgsEl.scrollHeight;
@@ -1093,7 +1103,16 @@
   $("announceClose").onclick = () => { if (announcement) store.set("place-ann-hidden", announcement.id); renderAnnounce(); };
 
   // ---------- Classement ----------
-  let lbPeriod = "24h";
+  let lbPeriod = "24h", lbSince = 0;
+  function renderLbSince() {
+    const t = lbSince ? new Date(lbSince).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+    $("lbSince").textContent = lbSince ? `Compté depuis le ${t}` : "";
+    $("lbStatus").textContent = lbSince ? `Dernière remise à zéro : ${t}` : "Jamais remis à zéro";
+  }
+  $("lbReset").onclick = async () => {
+    if (await ask("Remettre le classement à zéro ?", "Tous les joueurs repartent de 0 pixel dans le classement. Les pixels de la toile et le timelapse ne changent pas.", { ok: "Remettre à zéro" }))
+      wsSend({ type: "mod", action: "resetLeaderboard" });
+  };
   async function loadLeaderboard() {
     $("lbList").innerHTML = '<span class="muted">Chargement…</span>';
     const r = await (await fetch(`/api/leaderboard?period=${lbPeriod}&me=${encodeURIComponent(username || "")}`)).json();
@@ -1371,14 +1390,16 @@
     wsSend({ type: "auth", password: $("pwInput").value });
   };
   $("logoutBtn").onclick = () => { store.set("place-mod", null); location.reload(); };
-  async function askBan(user) {
-    const reason = await ask(`Bannir ${user} ?`, "Il pourra encore regarder, mais plus dessiner ni écrire. Ses messages seront supprimés.", { input: true, ok: "Bannir" });
+  async function askBan(user, pid) {
+    const who = pid ? `${user || ""} #${pid}`.trim() : user;
+    const reason = await ask(`Bannir ${who} ?`, `${pid ? "Son identifiant, son pseudo et ses adresses IP seront bannis. " : ""}Il pourra encore regarder, mais plus dessiner ni écrire. Ses messages seront supprimés.`, { input: true, ok: "Bannir" });
     if (reason === null) return;
-    wsSend({ type: "mod", action: "ban", user, reason, deleteChat: true });
+    wsSend({ type: "mod", action: "ban", user, pid, reason, deleteChat: true });
   }
-  async function askRollback(user) {
-    if (!await ask(`Annuler les pixels de ${user} ?`, "Chaque case qu'il a coloriée reprend la couleur d'avant.", { ok: "Annuler ses pixels" })) return;
-    wsSend({ type: "mod", action: "rollback", user });
+  async function askRollback(user, pid) {
+    const who = pid ? `${user || ""} #${pid}`.trim() : user;
+    if (!await ask(`Annuler les pixels de ${who} ?`, "Chaque case qu'il a coloriée reprend la couleur d'avant.", { ok: "Annuler ses pixels" })) return;
+    wsSend({ type: "mod", action: "rollback", user, pid });
   }
   $("banBtn").onclick = () => {
     const user = $("banName").value.trim();
@@ -1409,14 +1430,16 @@
     const byUser = new Map();
     for (const b of list) {
       const key = b.user || b.value;
-      if (!byUser.has(key)) byUser.set(key, { id: b.id, user: key, reason: b.reason, ips: 0 });
+      if (!byUser.has(key)) byUser.set(key, { id: b.id, user: key, reason: b.reason, ips: 0, pids: [] });
       if (b.kind === "ip") byUser.get(key).ips++;
+      if (b.kind === "pid") byUser.get(key).pids.push(b.value);
     }
     if (!byUser.size) { box.innerHTML = '<span class="muted">Personne</span>'; return; }
     box.innerHTML = "";
     for (const b of byUser.values()) {
       const d = document.createElement("div"); d.className = "ban";
-      d.innerHTML = `<span><b>${esc(b.user)}</b><br><span class="muted" style="font-size:12px">${esc(b.reason || "sans raison")} · ${b.ips} IP</span></span>`;
+      const ids = b.pids.filter(p => !b.user.includes("#" + p)).map(p => "#" + p).join(" ");
+      d.innerHTML = `<span><b>${esc(b.user)}</b>${ids ? ` <span class="pid">${esc(ids)}</span>` : ""}<br><span class="muted" style="font-size:12px">${esc(b.reason || "sans raison")} · ${b.ips} IP</span></span>`;
       const btn = document.createElement("button"); btn.className = "small grey"; btn.textContent = "Débannir";
       btn.onclick = () => wsSend({ type: "mod", action: "unban", id: b.id });
       d.appendChild(btn); box.appendChild(d);
@@ -1431,7 +1454,8 @@
 
   // ---------- Connexion au serveur ----------
   function connect() {
-    ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host);
+    const tok = store.get("place-token");
+    ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/" + (tok ? "?t=" + encodeURIComponent(tok) : ""));
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
       $("conn").classList.add("on"); updateBottom();
@@ -1494,6 +1518,11 @@
         case "announce": announcement = m.a; renderAnnounce(m.fresh); if (m.fresh && m.a) toast("📢 Nouvelle annonce"); break;
         case "event": event = m.e; renderEvent(); updateBottom(); if (isAdmin) fillEventForm(); break;
         case "notice": toast(m.text); break;
+        case "you": store.set("place-token", m.token); $("mePid").textContent = "#" + m.pid; break;
+        case "leaderboardReset":
+          lbSince = m.since; renderLbSince();
+          if ($("lbModal").classList.contains("show")) loadLeaderboard();
+          break;
         case "banned": banned = true; $("bannedBar").style.display = "block"; updateBottom(); break;
         case "unbanned": if (banned) { banned = false; $("bannedBar").style.display = "none"; updateBottom(); } break;
       }

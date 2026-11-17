@@ -1,6 +1,6 @@
 # Mini r/place
 
-Une grille de 500×500 pixels partagée en temps réel, avec 16 couleurs, une base de données et « qui a posé ce pixel ».
+Une grille de 500×500 pixels partagée en temps réel, avec 16 couleurs, une base de données, « qui a posé ce pixel », un chat et des outils de modération.
 
 ## Lancer en local
 
@@ -23,12 +23,33 @@ Ouvre ensuite http://localhost:3000.
 - Cliquer-glisser : se déplacer
 - Échap : annuler la sélection
 
+## Le chat
+
+En bas à gauche (en haut sur téléphone). Clique sur « 💬 Chat » pour l'ouvrir ou le réduire.
+Messages de 200 caractères maximum, un message toutes les 1,5 seconde.
+
+## La modération
+
+1. Définis la variable d'environnement `ADMIN_PASSWORD` (sur Railway : onglet **Variables**). Sans elle, la modération est désactivée.
+2. Sur le site, clique sur le bouclier 🛡️ en haut et entre le mot de passe.
+
+Tu peux alors :
+- **Supprimer un message** : 🗑️ à côté du message
+- **Bannir quelqu'un** : 🚫 à côté de son message, bouton « Bannir » quand tu cliques sur un de ses pixels, ou le formulaire du panneau. Le pseudo et toutes les adresses IP qu'il a utilisées sont bannis : il peut encore regarder, mais plus dessiner ni écrire.
+- **Annuler les pixels d'un pseudo** : chaque case qu'il a coloriée reprend la couleur d'avant
+- **Effacer une zone** : sélectionne un pixel puis « ← sélection » pour chaque coin, et « Effacer la zone » (remise en blanc)
+- **Débannir** : liste « Bannis » dans le panneau
+
+En modération, tu n'as pas de délai entre deux pixels et tes messages ont un badge MODO.
+Toutes les actions sont enregistrées dans la table `mod_log`.
+
 ## La base de données
 
 Tout est enregistré dans le fichier `place.db` (SQLite) :
 
 - table `pixels` : l'historique complet, une ligne par pixel posé (position, couleur, pseudo, IP, date) → permet de faire un timelapse plus tard
 - table `canvas` : l'état actuel de chaque case
+- tables `chat`, `bans` et `mod_log` : messages, bannissements et journal de modération
 
 Au démarrage, le serveur recharge la toile depuis la base : rien n'est perdu quand il redémarre.
 Pour repartir de zéro, arrête le serveur et supprime `place.db`, `place.db-wal` et `place.db-shm`.
@@ -46,7 +67,7 @@ Pour regarder dedans, tu peux utiliser [DB Browser for SQLite](https://sqlitebro
 - Le pseudo n'est pas protégé par un mot de passe : quelqu'un peut prendre le même pseudo qu'un autre.
 - Le délai est compté par adresse IP (tout un Wi-Fi le partage).
 
-Prochaines étapes possibles : connexion avec Discord/Google, timelapse, modération.
+Prochaines étapes possibles : connexion avec Discord/Google, timelapse.
 
 ## Mettre en ligne
 

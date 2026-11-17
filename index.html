@@ -8,61 +8,170 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; background: #ddd; }
   #board { display: block; width: 100vw; height: 100vh; cursor: crosshair; touch-action: none; }
-  .bar { position: fixed; left: 50%; transform: translateX(-50%); background: #fff; border-radius: 12px;
-         box-shadow: 0 4px 16px rgba(0,0,0,.2); padding: 10px 14px; }
-  #top { top: 12px; display: flex; gap: 16px; font-size: 14px; align-items: center; white-space: nowrap; }
-  #bottom { bottom: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 340px; }
+  .bar { position: fixed; background: #fff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.2); }
+  .muted { color: #777; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 9px 16px; cursor: pointer; }
+  button.small { padding: 4px 8px; font-size: 12px; }
+  button.red { background: #e50000; color: #fff; }
+  button.grey { background: #eee; }
+  input { font: inherit; padding: 8px; border: 2px solid #ccc; border-radius: 8px; min-width: 0; }
+
+  /* Barre du haut */
+  #top { top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 14px; font-size: 14px;
+         align-items: center; white-space: nowrap; padding: 8px 14px; }
+  #coords { font-variant-numeric: tabular-nums; color: #555; }
+  #me { color: #ff4500; font-weight: 600; cursor: pointer; }
+  #modBtn { background: none; padding: 2px 4px; font-size: 16px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #c00; display: inline-block; margin-right: 4px; }
+  .dot.on { background: #0a0; }
+
+  /* Barre du bas */
+  #bottom { bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column;
+            align-items: center; gap: 10px; min-width: 340px; padding: 10px 14px; }
   #palette { display: grid; grid-template-columns: repeat(8, 32px); gap: 6px; }
   .swatch { width: 32px; height: 32px; border-radius: 6px; border: 2px solid #0002; cursor: pointer; }
   .swatch.sel { outline: 3px solid #000; outline-offset: 2px; }
   #info { font-size: 14px; text-align: center; min-height: 20px; }
-  #info b { font-weight: 700; }
-  #info .muted { color: #777; }
+  #pixelMod { display: flex; gap: 6px; justify-content: center; }
   #actions { display: flex; gap: 8px; align-items: center; }
-  button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 9px 16px; cursor: pointer; }
   #placeBtn { background: #ff4500; color: #fff; min-width: 180px; }
   #placeBtn:disabled { background: #bbb; cursor: default; }
-  #cancelBtn { background: #eee; }
-  #coords { font-variant-numeric: tabular-nums; color: #555; }
-  #me { color: #ff4500; font-weight: 600; cursor: pointer; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: #c00; display: inline-block; margin-right: 4px; }
-  .dot.on { background: #0a0; }
-  #nameModal { position: fixed; inset: 0; background: #0006; display: none; align-items: center; justify-content: center; }
-  #nameModal.show { display: flex; }
-  #nameModal form { background: #fff; padding: 24px; border-radius: 14px; width: 300px; display: flex; flex-direction: column; gap: 12px; }
-  #nameModal h2 { margin: 0; font-size: 20px; }
-  #nameModal input { font: inherit; padding: 10px; border: 2px solid #ccc; border-radius: 8px; }
-  #nameModal button { background: #ff4500; color: #fff; }
-  #nameErr { color: #c00; font-size: 13px; min-height: 16px; }
+
+  /* Chat */
+  #chat { left: 12px; bottom: 12px; width: 300px; height: 380px; display: flex; flex-direction: column; overflow: hidden; }
+  #chat.closed { height: auto; }
+  #chat.closed #chatBody { display: none; }
+  #chatHead { padding: 10px 12px; font-weight: 700; display: flex; justify-content: space-between; cursor: pointer;
+              border-bottom: 1px solid #eee; user-select: none; }
+  #chatUnread { background: #ff4500; color: #fff; border-radius: 10px; padding: 0 7px; font-size: 12px; display: none; }
+  #chatBody { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #msgs { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+  .msg { word-wrap: break-word; line-height: 1.35; }
+  .msg .who { font-weight: 700; margin-right: 4px; }
+  .msg .modtag { background: #2a7; color: #fff; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 1px 4px; margin-right: 4px; }
+  .msg .tools { display: none; margin-left: 4px; }
+  body.admin .msg .tools { display: inline; }
+  .msg .tools button { background: none; padding: 0 2px; font-size: 13px; }
+  #chatForm { display: flex; gap: 6px; padding: 8px; border-top: 1px solid #eee; }
+  #chatInput { flex: 1; }
+  #chatForm button { background: #ff4500; color: #fff; padding: 8px 12px; }
+
+  /* Panneau de modération */
+  #modPanel { right: 12px; top: 64px; width: 290px; max-height: calc(100vh - 80px); overflow-y: auto;
+              padding: 14px; display: none; font-size: 14px; }
+  body.admin #modPanel.open { display: block; }
+  #modPanel h3 { margin: 0 0 10px; font-size: 16px; }
+  #modPanel h4 { margin: 14px 0 6px; font-size: 14px; }
+  #modPanel .row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+  #modPanel .row input { width: 100%; }
+  #modPanel input.n { width: 60px; }
+  #modPanel .row input[type=checkbox] { width: auto; }
+  #banList { display: flex; flex-direction: column; gap: 4px; }
+  .ban { display: flex; justify-content: space-between; align-items: center; background: #f5f5f5; border-radius: 6px; padding: 4px 8px; }
+
+  /* Fenêtres */
+  .modal { position: fixed; inset: 0; background: #0006; display: none; align-items: center; justify-content: center; z-index: 10; }
+  .modal.show { display: flex; }
+  .modal form { background: #fff; padding: 24px; border-radius: 14px; width: 300px; display: flex; flex-direction: column; gap: 12px; }
+  .modal h2 { margin: 0; font-size: 20px; }
+  .modal button[type=submit] { background: #ff4500; color: #fff; }
+  .err { color: #c00; font-size: 13px; min-height: 16px; }
+
+  #toast { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); background: #222; color: #fff;
+           padding: 10px 16px; border-radius: 10px; font-size: 14px; display: none; z-index: 20; }
+  #bannedBar { position: fixed; top: 0; left: 0; right: 0; background: #c00; color: #fff; text-align: center;
+               padding: 8px; font-weight: 600; display: none; z-index: 5; }
+
+  @media (max-width: 760px) {
+    #chat { width: calc(100vw - 24px); height: 260px; bottom: auto; top: 60px; }
+    #top .hint { display: none; }
+    #modPanel { left: 12px; right: 12px; width: auto; top: 60px; }
+  }
 </style>
 </head>
 <body>
 <canvas id="board"></canvas>
+<div id="bannedBar">Tu as été banni par la modération : tu peux regarder mais plus dessiner ni écrire.</div>
 
 <div id="top" class="bar">
   <span><span id="conn" class="dot"></span><span id="online">0</span> en ligne</span>
   <span id="coords">(–, –)</span>
   <span>Pseudo : <span id="me" title="Changer de pseudo">–</span></span>
+  <button id="modBtn" title="Modération" hidden>🛡️</button>
 </div>
 
 <div id="bottom" class="bar">
   <div id="info"><span class="muted">Clique sur un pixel pour le sélectionner</span></div>
+  <div id="pixelMod" hidden></div>
   <div id="palette"></div>
   <div id="actions">
-    <button id="cancelBtn" hidden>Annuler</button>
+    <button id="cancelBtn" class="grey" hidden>Annuler</button>
     <button id="placeBtn" disabled>Placer</button>
   </div>
 </div>
 
-<div id="nameModal">
+<div id="chat" class="bar">
+  <div id="chatHead"><span>💬 Chat</span><span><span id="chatUnread">0</span> <span id="chatArrow">▾</span></span></div>
+  <div id="chatBody">
+    <div id="msgs"></div>
+    <form id="chatForm" autocomplete="off">
+      <input id="chatInput" placeholder="Écris un message…">
+      <button type="submit">Envoyer</button>
+    </form>
+  </div>
+</div>
+
+<div id="modPanel" class="bar">
+  <h3>🛡️ Modération</h3>
+
+  <h4>Effacer une zone</h4>
+  <div class="row">
+    <input id="zx1" class="n" placeholder="x1"><input id="zy1" class="n" placeholder="y1">
+    <button class="small grey" id="corner1">← sélection</button>
+  </div>
+  <div class="row">
+    <input id="zx2" class="n" placeholder="x2"><input id="zy2" class="n" placeholder="y2">
+    <button class="small grey" id="corner2">← sélection</button>
+  </div>
+  <div class="row"><button class="red" id="clearZoneBtn">Effacer la zone</button></div>
+
+  <h4>Bannir un pseudo</h4>
+  <div class="row"><input id="banName" placeholder="Pseudo"></div>
+  <div class="row"><input id="banReason" placeholder="Raison (facultatif)"></div>
+  <div class="row"><label><input type="checkbox" id="banChat" checked> supprimer ses messages</label></div>
+  <div class="row"><button class="red" id="banBtn">Bannir</button></div>
+
+  <h4>Annuler les pixels d'un pseudo</h4>
+  <div class="row"><input id="rbName" placeholder="Pseudo"><button class="red" id="rbBtn">Annuler</button></div>
+
+  <h4>Bannis</h4>
+  <div id="banList"><span class="muted">Personne</span></div>
+
+  <h4></h4>
+  <button class="grey" id="logoutBtn">Se déconnecter</button>
+</div>
+
+<div id="nameModal" class="modal">
   <form id="nameForm">
     <h2>Choisis ton pseudo</h2>
-    <span class="muted" style="font-size:14px;color:#666">Il sera visible sur chaque pixel que tu poses.</span>
-    <input id="nameInput" maxlength="20" placeholder="Ton pseudo" autocomplete="off">
-    <div id="nameErr"></div>
+    <span class="muted" style="font-size:14px">Il sera visible sur chaque pixel et dans le chat.</span>
+    <input id="nameInput" maxlength="20" placeholder="Ton pseudo">
+    <div class="err" id="nameErr"></div>
     <button type="submit">C'est parti</button>
   </form>
 </div>
+
+<div id="loginModal" class="modal">
+  <form id="loginForm">
+    <h2>🛡️ Modération</h2>
+    <input id="pwInput" type="password" placeholder="Mot de passe">
+    <div class="err" id="pwErr"></div>
+    <button type="submit">Se connecter</button>
+    <button type="button" class="grey" id="pwCancel">Annuler</button>
+  </form>
+</div>
+
+<div id="toast"></div>
 
 <script>
 (async () => {
@@ -70,10 +179,19 @@
   const W = cfg.width, H = cfg.height, palette = cfg.palette;
   const rgb = palette.map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)));
   const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const store = {
+    get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
+  };
+  let toastTimer;
+  function toast(text) {
+    $("toast").textContent = text; $("toast").style.display = "block";
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").style.display = "none", 3500);
+  }
 
   // ---------- Pseudo ----------
-  let username = null;
-  try { username = localStorage.getItem("place-username"); } catch {}
+  let username = store.get("place-username");
   function askName() {
     $("nameInput").value = username || "";
     $("nameModal").classList.add("show");
@@ -84,7 +202,7 @@
     const v = $("nameInput").value.trim().replace(/[^\p{L}\p{N}_\-. ]/gu, "");
     if (v.length < 2) { $("nameErr").textContent = "2 caractères minimum (lettres, chiffres, - _ .)"; return; }
     username = v.slice(0, 20);
-    try { localStorage.setItem("place-username", username); } catch {}
+    store.set("place-username", username);
     $("me").textContent = username;
     $("nameModal").classList.remove("show");
   };
@@ -104,7 +222,7 @@
   // ---------- Affichage ----------
   const canvas = $("board"), ctx = canvas.getContext("2d");
   let scale = 4, offX = 0, offY = 0;
-  let hover = null, sel = null, color = 13, cooldownEnd = 0;
+  let hover = null, sel = null, color = 13, cooldownEnd = 0, isAdmin = false, banned = false;
 
   function resize() {
     canvas.width = innerWidth * devicePixelRatio;
@@ -116,12 +234,26 @@
     offX = (innerWidth - W * scale) / 2;
     offY = (innerHeight - H * scale) / 2;
   }
+  function zoneRect() {
+    const v = ["zx1", "zy1", "zx2", "zy2"].map(id => $(id).value.trim());
+    if (!isAdmin || !$("modPanel").classList.contains("open") || v.some(s => s === "" || isNaN(s))) return null;
+    const [x1, y1, x2, y2] = v.map(Number);
+    return { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1) + 1, h: Math.abs(y2 - y1) + 1 };
+  }
   function draw() {
     ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     ctx.fillStyle = "#ddd";
     ctx.fillRect(0, 0, innerWidth, innerHeight);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(off, offX, offY, W * scale, H * scale);
+    const z = zoneRect();
+    if (z) {
+      ctx.fillStyle = "rgba(229,0,0,.25)";
+      ctx.fillRect(offX + z.x * scale, offY + z.y * scale, z.w * scale, z.h * scale);
+      ctx.strokeStyle = "#e50000"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+      ctx.strokeRect(offX + z.x * scale, offY + z.y * scale, z.w * scale, z.h * scale);
+      ctx.setLineDash([]);
+    }
     if (sel) {
       const sx = offX + sel.x * scale, sy = offY + sel.y * scale;
       ctx.fillStyle = palette[color];
@@ -150,18 +282,32 @@
     if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
     return new Date(t).toLocaleString("fr-FR");
   }
-  function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
-
-  let infoReq = 0;
+  let infoReq = 0, selAuthor = null;
   async function showInfo() {
+    selAuthor = null; renderPixelMod();
     if (!sel) { $("info").innerHTML = '<span class="muted">Clique sur un pixel pour le sélectionner</span>'; return; }
     const req = ++infoReq, { x, y } = sel;
     $("info").innerHTML = `<span class="muted">(${x}, ${y}) · chargement…</span>`;
     const p = await (await fetch(`/pixel?x=${x}&y=${y}`)).json();
     if (req !== infoReq) return;
-    $("info").innerHTML = p.empty
-      ? `<span class="muted">(${x}, ${y}) · personne n'a encore posé ici</span>`
-      : `(${x}, ${y}) · posé par <b>${esc(p.user)}</b> <span class="muted">${ago(p.placedAt)} · ${p.userTotal} pixel${p.userTotal > 1 ? "s" : ""} au total</span>`;
+    if (p.empty) {
+      $("info").innerHTML = `<span class="muted">(${x}, ${y}) · personne n'a encore posé ici</span>`;
+    } else {
+      selAuthor = p.user;
+      $("info").innerHTML = `(${x}, ${y}) · posé par <b>${esc(p.user)}</b> <span class="muted">${ago(p.placedAt)} · ${p.userTotal} pixel${p.userTotal > 1 ? "s" : ""} au total</span>`;
+    }
+    renderPixelMod();
+  }
+  function renderPixelMod() {
+    const box = $("pixelMod");
+    box.hidden = !(isAdmin && selAuthor);
+    if (box.hidden) return;
+    box.innerHTML = "";
+    const b1 = document.createElement("button"); b1.className = "small red"; b1.textContent = `Bannir ${selAuthor}`;
+    b1.onclick = () => askBan(selAuthor);
+    const b2 = document.createElement("button"); b2.className = "small grey"; b2.textContent = "Annuler ses pixels";
+    b2.onclick = () => askRollback(selAuthor);
+    box.append(b1, b2);
   }
   function select(cell) {
     sel = cell;
@@ -199,9 +345,9 @@
     $("coords").textContent = hover ? `(${hover.x}, ${hover.y})` : "(–, –)";
     draw();
   });
-  canvas.addEventListener("pointerup", e => {
+  canvas.addEventListener("pointerup", () => {
     dragging = false;
-    if (!moved) select(toCell(e.clientX, e.clientY));
+    if (!moved && hover) select(hover);
   });
   canvas.addEventListener("wheel", e => {
     e.preventDefault();
@@ -211,14 +357,18 @@
     scale = ns;
     draw();
   }, { passive: false });
-  addEventListener("keydown", e => { if (e.key === "Escape") select(null); });
+  addEventListener("keydown", e => {
+    if (e.key === "Escape" && document.activeElement.tagName !== "INPUT") select(null);
+  });
 
   // ---------- Placer ----------
   let ws;
+  const wsSend = obj => ws && ws.readyState === 1 && ws.send(JSON.stringify(obj));
   function updateButton() {
     const left = cooldownEnd - Date.now();
     const btn = $("placeBtn");
     if (!ws || ws.readyState !== 1) { btn.disabled = true; btn.textContent = "Connexion…"; }
+    else if (banned && !isAdmin) { btn.disabled = true; btn.textContent = "Banni"; }
     else if (left > 0) {
       btn.disabled = true;
       const s = Math.ceil(left / 1000);
@@ -230,14 +380,124 @@
   $("placeBtn").onclick = () => {
     if (!username) return askName();
     if (!sel || Date.now() < cooldownEnd) return;
-    ws.send(JSON.stringify({ type: "place", x: sel.x, y: sel.y, c: color, user: username }));
+    wsSend({ type: "place", x: sel.x, y: sel.y, c: color, user: username });
   };
+
+  // ---------- Chat ----------
+  const msgsEl = $("msgs");
+  let unread = 0;
+  const chatOpen = () => !$("chat").classList.contains("closed");
+  function setChatOpen(open) {
+    $("chat").classList.toggle("closed", !open);
+    $("chatArrow").textContent = open ? "▾" : "▴";
+    if (open) { unread = 0; $("chatUnread").style.display = "none"; msgsEl.scrollTop = msgsEl.scrollHeight; }
+    store.set("place-chat-closed", open ? null : "1");
+  }
+  $("chatHead").onclick = () => setChatOpen(!chatOpen());
+  setChatOpen(!(store.get("place-chat-closed") || innerWidth < 760));
+
+  function nameColor(name) {
+    let h = 0; for (const ch of name) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return `hsl(${h % 360}, 65%, 40%)`;
+  }
+  function addMsg(m, scroll = true) {
+    const atBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 40;
+    const d = document.createElement("div");
+    d.className = "msg"; d.dataset.id = m.id;
+    d.innerHTML = (m.is_mod ? '<span class="modtag">MODO</span>' : "") +
+      `<span class="who" style="color:${nameColor(m.user)}">${esc(m.user)}</span>${esc(m.text)}` +
+      `<span class="tools"><button title="Supprimer" data-act="del">🗑️</button><button title="Bannir" data-act="ban">🚫</button></span>`;
+    d.querySelector('[data-act="del"]').onclick = () => wsSend({ type: "mod", action: "deleteChat", id: m.id });
+    d.querySelector('[data-act="ban"]').onclick = () => askBan(m.user);
+    msgsEl.appendChild(d);
+    while (msgsEl.children.length > 200) msgsEl.firstChild.remove();
+    if (scroll && atBottom) msgsEl.scrollTop = msgsEl.scrollHeight;
+  }
+  $("chatInput").maxLength = cfg.chatMax;
+  $("chatForm").onsubmit = e => {
+    e.preventDefault();
+    if (!username) return askName();
+    const text = $("chatInput").value.trim();
+    if (!text) return;
+    wsSend({ type: "chat", text, user: username });
+    $("chatInput").value = "";
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  };
+
+  // ---------- Modération ----------
+  $("modBtn").hidden = !cfg.modEnabled;
+  $("modBtn").onclick = () => {
+    if (isAdmin) { $("modPanel").classList.toggle("open"); draw(); }
+    else { $("pwErr").textContent = ""; $("loginModal").classList.add("show"); $("pwInput").focus(); }
+  };
+  $("pwCancel").onclick = () => $("loginModal").classList.remove("show");
+  $("loginForm").onsubmit = e => {
+    e.preventDefault();
+    wsSend({ type: "auth", password: $("pwInput").value });
+  };
+  $("logoutBtn").onclick = () => {
+    store.set("place-mod", null);
+    location.reload();
+  };
+  function askBan(user) {
+    const reason = prompt(`Bannir « ${user} » ?\nRaison (facultatif) :`, "");
+    if (reason === null) return;
+    wsSend({ type: "mod", action: "ban", user, reason, deleteChat: true });
+  }
+  function askRollback(user) {
+    if (!confirm(`Remettre comme avant tous les pixels encore visibles de « ${user} » ?`)) return;
+    wsSend({ type: "mod", action: "rollback", user });
+  }
+  $("banBtn").onclick = () => {
+    const user = $("banName").value.trim();
+    if (!user) return;
+    wsSend({ type: "mod", action: "ban", user, reason: $("banReason").value, deleteChat: $("banChat").checked });
+    $("banName").value = ""; $("banReason").value = "";
+  };
+  $("rbBtn").onclick = () => { const u = $("rbName").value.trim(); if (u) askRollback(u); };
+  $("corner1").onclick = () => { if (sel) { $("zx1").value = sel.x; $("zy1").value = sel.y; draw(); } else toast("Sélectionne d'abord un pixel"); };
+  $("corner2").onclick = () => { if (sel) { $("zx2").value = sel.x; $("zy2").value = sel.y; draw(); } else toast("Sélectionne d'abord un pixel"); };
+  ["zx1", "zy1", "zx2", "zy2"].forEach(id => $(id).oninput = draw);
+  $("clearZoneBtn").onclick = () => {
+    const z = zoneRect();
+    if (!z) return toast("Remplis les deux coins de la zone");
+    if (!confirm(`Effacer ${z.w}×${z.h} pixels (remis en blanc) ?`)) return;
+    wsSend({ type: "mod", action: "clearZone", x1: z.x, y1: z.y, x2: z.x + z.w - 1, y2: z.y + z.h - 1 });
+  };
+  function renderBans(list) {
+    const box = $("banList");
+    const byUser = new Map();
+    for (const b of list) {
+      const key = b.user || b.value;
+      if (!byUser.has(key)) byUser.set(key, { id: b.id, user: key, reason: b.reason, ips: 0 });
+      if (b.kind === "ip") byUser.get(key).ips++;
+    }
+    if (!byUser.size) { box.innerHTML = '<span class="muted">Personne</span>'; return; }
+    box.innerHTML = "";
+    for (const b of byUser.values()) {
+      const d = document.createElement("div"); d.className = "ban";
+      d.innerHTML = `<span><b>${esc(b.user)}</b><br><span class="muted" style="font-size:12px">${esc(b.reason || "sans raison")} · ${b.ips} IP</span></span>`;
+      const btn = document.createElement("button"); btn.className = "small grey"; btn.textContent = "Débannir";
+      btn.onclick = () => wsSend({ type: "mod", action: "unban", id: b.id });
+      d.appendChild(btn); box.appendChild(d);
+    }
+  }
+  function setAdmin(on) {
+    isAdmin = on;
+    document.body.classList.toggle("admin", on);
+    if (on) $("modPanel").classList.add("open");
+    renderPixelMod(); updateButton(); draw();
+  }
 
   // ---------- Réseau ----------
   function connect() {
     ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host);
     ws.binaryType = "arraybuffer";
-    ws.onopen = () => { $("conn").classList.add("on"); updateButton(); };
+    ws.onopen = () => {
+      $("conn").classList.add("on"); updateButton();
+      const pw = store.get("place-mod");
+      if (pw) wsSend({ type: "auth", password: pw, silent: true });
+    };
     ws.onclose = () => {
       $("conn").classList.remove("on"); updateButton();
       setTimeout(connect, 2000);
@@ -248,22 +508,51 @@
         for (let i = 0; i < g.length; i++) setPixel(i % W, (i / W) | 0, g[i]);
         offCtx.putImageData(img, 0, 0);
         draw();
+        if (sel) showInfo();
         return;
       }
       const m = JSON.parse(ev.data);
-      if (m.type === "pixel") {
-        setPixel(m.x, m.y, m.c);
-        offCtx.putImageData(img, 0, 0, m.x, m.y, 1, 1);
-        if (sel && sel.x === m.x && sel.y === m.y) showInfo();
-        draw();
-      } else if (m.type === "cooldown") {
-        cooldownEnd = Date.now() + m.wait;
-        updateButton();
-      } else if (m.type === "online") {
-        $("online").textContent = m.count;
-      } else if (m.type === "error") {
-        $("info").innerHTML = `<span style="color:#c00">${esc(m.message)}</span>`;
-        if (/pseudo/i.test(m.message)) askName();
+      switch (m.type) {
+        case "pixel":
+          setPixel(m.x, m.y, m.c);
+          offCtx.putImageData(img, 0, 0, m.x, m.y, 1, 1);
+          if (sel && sel.x === m.x && sel.y === m.y) showInfo();
+          draw();
+          break;
+        case "cooldown": cooldownEnd = Date.now() + m.wait; updateButton(); break;
+        case "online": $("online").textContent = m.count; break;
+        case "error":
+          toast(m.message);
+          if (/pseudo/i.test(m.message)) askName();
+          break;
+        case "chatHistory":
+          msgsEl.innerHTML = "";
+          m.msgs.forEach(x => addMsg(x, false));
+          msgsEl.scrollTop = msgsEl.scrollHeight;
+          break;
+        case "chat":
+          addMsg(m.msg);
+          if (!chatOpen()) { unread++; $("chatUnread").textContent = unread; $("chatUnread").style.display = "inline"; }
+          break;
+        case "chatDeleted": {
+          const d = msgsEl.querySelector(`[data-id="${m.id}"]`); if (d) d.remove();
+          break;
+        }
+        case "auth":
+          if (m.ok) {
+            store.set("place-mod", $("pwInput").value || store.get("place-mod"));
+            $("pwInput").value = "";
+            $("loginModal").classList.remove("show");
+            setAdmin(true);
+          } else {
+            store.set("place-mod", null);
+            $("pwErr").textContent = m.error;
+          }
+          break;
+        case "bans": renderBans(m.list); break;
+        case "notice": toast(m.text); break;
+        case "banned": banned = true; $("bannedBar").style.display = "block"; updateButton(); break;
+        case "unbanned": if (banned) { banned = false; $("bannedBar").style.display = "none"; updateButton(); } break;
       }
     };
   }

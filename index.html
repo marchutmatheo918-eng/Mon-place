@@ -37,8 +37,8 @@
   #bubbleMod { display: flex; gap: 5px; justify-content: center; margin-top: 6px; }
 
   /* Barre du bas */
-  #bottom { bottom: 14px; left: 50%; transform: translateX(-50%); padding: 10px; display: flex;
-            flex-direction: column; align-items: center; gap: 10px; transition: padding .15s; }
+  #bottom { bottom: 16px; left: 50%; transform: translateX(-50%); padding: 16px 20px 14px; display: flex;
+            flex-direction: column; align-items: center; gap: 14px; border-radius: 16px; }
   #placeBtn { background: #ff4500; color: #fff; font-size: 17px; padding: 13px 26px; border-radius: 30px;
               min-width: 230px; box-shadow: 0 3px 0 #b33000; }
   #placeBtn:active { transform: translateY(2px); box-shadow: 0 1px 0 #b33000; }
@@ -47,19 +47,20 @@
   #picker { display: none; flex-direction: column; align-items: center; gap: 10px; }
   #bottom.picking #picker { display: flex; }
   #bottom.picking #placeBtn { display: none; }
-  #palette { display: grid; grid-template-columns: repeat(16, 32px); gap: 6px; }
+  #palette { display: grid; grid-template-columns: repeat(16, 32px); gap: 8px; }
   .swatch { width: 32px; height: 32px; border-radius: 7px; border: 2px solid #0002; cursor: pointer; transition: transform .1s; }
   .swatch:hover { transform: scale(1.08); }
   .swatch.sel { outline: 3px solid #000; outline-offset: 2px; transform: scale(1.1); }
   .swatch { position: relative; }
   .swatch .key { position: absolute; right: 2px; bottom: 1px; font-size: 10px; font-weight: 700; line-height: 1;
                  color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000; pointer-events: none; }
-  #keys { display: grid; grid-template-columns: repeat(16, 22px); gap: 3px; }
-  #keys .k { width: 22px; height: 22px; border-radius: 4px; border: 1px solid #0003; position: relative; cursor: pointer;
+  #keys { display: grid; grid-template-columns: repeat(16, 24px); gap: 6px 6px; }
+  #keys .k { width: 24px; height: 24px; border-radius: 4px; border: 1px solid #0003; position: relative; cursor: pointer;
              font-size: 10px; font-weight: 700; color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000;
              display: flex; align-items: flex-end; justify-content: flex-end; padding: 1px 2px; }
   #keys .k.sel { outline: 2px solid #000; outline-offset: 1px; }
-  #keysHint { font-size: 11px; color: #777; text-align: center; }
+  #keysHint { font-size: 12px; color: #777; text-align: center; display: flex; gap: 14px; align-items: center;
+              justify-content: center; white-space: nowrap; flex-wrap: wrap; row-gap: 4px; }
   #bottom.picking #keys, #bottom.picking #keysHint { display: none; }
   #keysHint a { color: #ff4500; font-weight: 600; cursor: pointer; text-decoration: underline; }
   #keysModal .box { background: #fff; padding: 22px; border-radius: 14px; width: 340px; max-height: 90vh; overflow-y: auto;
@@ -73,7 +74,7 @@
   #keysModal .actions { display: flex; gap: 8px; }
   #keysModal .actions button { flex: 1; }
   @media (pointer: coarse) { #keys, #keysHint, .swatch .key { display: none !important; } }
-  #pickActions { display: flex; gap: 10px; width: 100%; }
+  #pickActions { display: flex; gap: 12px; width: 100%; margin-top: 2px; }
   #pickActions button { flex: 1; font-size: 20px; padding: 8px; border-radius: 10px; }
   #noBtn { background: #eee; color: #333; }
   #okBtn { background: #ff4500; color: #fff; }
@@ -160,6 +161,10 @@
   #modPanel label.full { display: flex; flex-direction: column; gap: 2px; width: 100%; font-size: 12px; color: #555; }
   #evStatus { font-size: 12px; color: #555; margin-bottom: 6px; }
 
+  @media (max-width: 1400px) and (min-width: 761px) {
+    #chat { bottom: auto; top: 64px; height: 340px; }
+    #chat.closed { height: auto; }
+  }
   @media (max-width: 760px) {
     #palette { grid-template-columns: repeat(8, 34px) !important; }
     #banners { top: 60px; }
@@ -194,7 +199,7 @@
 <div id="bottom" class="bar">
   <button id="placeBtn">Placer un pixel</button>
   <div id="keys"></div>
-  <div id="keysHint"><span id="keysHintText">⌨️ Survole un pixel et appuie sur la lettre de la couleur</span> · <a id="keysEdit">Modifier les touches</a></div>
+  <div id="keysHint"><span id="keysHintText">⌨️ Survole un pixel + appuie sur une lettre</span><a id="keysEdit">Modifier les touches</a></div>
   <div id="picker">
     <div id="palette"></div>
     <div id="pickActions">
@@ -619,7 +624,7 @@
     keyLabels = KEY_CODES.map(labelFor);
     document.querySelectorAll("[data-key]").forEach(el => el.textContent = keyLabels[el.dataset.key]);
     document.querySelectorAll(".swatch, #keys .k").forEach((el, j) => el.title = `Touche ${keyLabels[j % palette.length]}`);
-    $("keysHintText").textContent = `⌨️ Survole un pixel et appuie sur ${keyLabels.slice(0, 3).join(", ")}… pour le poser`;
+    $("keysHintText").textContent = `⌨️ Survole un pixel + appuie sur ${keyLabels[0]}, ${keyLabels[1]}, ${keyLabels[2]}…`;
   }
   async function loadKeyLabels() {
     try { layoutMap = await navigator.keyboard.getLayoutMap(); } catch {}

@@ -1,0 +1,17 @@
+{
+  "name": "mini-place",
+  "version": "2.0.0",
+  "description": "Un clone de r/place : grille de pixels partagée en temps réel, avec base de données",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "express": "^4.19.2",
+    "ws": "^8.17.0"
+  }
+}

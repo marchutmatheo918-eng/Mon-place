@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Mini r/place</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; background: #ddd; }
+  #board { display: block; width: 100vw; height: 100vh; cursor: crosshair; touch-action: none; }
+  .bar { position: fixed; left: 50%; transform: translateX(-50%); background: #fff; border-radius: 12px;
+         box-shadow: 0 4px 16px rgba(0,0,0,.2); padding: 10px 14px; }
+  #top { top: 12px; display: flex; gap: 16px; font-size: 14px; align-items: center; white-space: nowrap; }
+  #bottom { bottom: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 340px; }
+  #palette { display: grid; grid-template-columns: repeat(8, 32px); gap: 6px; }
+  .swatch { width: 32px; height: 32px; border-radius: 6px; border: 2px solid #0002; cursor: pointer; }
+  .swatch.sel { outline: 3px solid #000; outline-offset: 2px; }
+  #info { font-size: 14px; text-align: center; min-height: 20px; }
+  #info b { font-weight: 700; }
+  #info .muted { color: #777; }
+  #actions { display: flex; gap: 8px; align-items: center; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 9px 16px; cursor: pointer; }
+  #placeBtn { background: #ff4500; color: #fff; min-width: 180px; }
+  #placeBtn:disabled { background: #bbb; cursor: default; }
+  #cancelBtn { background: #eee; }
+  #coords { font-variant-numeric: tabular-nums; color: #555; }
+  #me { color: #ff4500; font-weight: 600; cursor: pointer; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #c00; display: inline-block; margin-right: 4px; }
+  .dot.on { background: #0a0; }
+  #nameModal { position: fixed; inset: 0; background: #0006; display: none; align-items: center; justify-content: center; }
+  #nameModal.show { display: flex; }
+  #nameModal form { background: #fff; padding: 24px; border-radius: 14px; width: 300px; display: flex; flex-direction: column; gap: 12px; }
+  #nameModal h2 { margin: 0; font-size: 20px; }
+  #nameModal input { font: inherit; padding: 10px; border: 2px solid #ccc; border-radius: 8px; }
+  #nameModal button { background: #ff4500; color: #fff; }
+  #nameErr { color: #c00; font-size: 13px; min-height: 16px; }
+</style>
+</head>
+<body>
+<canvas id="board"></canvas>
+
+<div id="top" class="bar">
+  <span><span id="conn" class="dot"></span><span id="online">0</span> en ligne</span>
+  <span id="coords">(–, –)</span>
+  <span>Pseudo : <span id="me" title="Changer de pseudo">–</span></span>
+</div>
+
+<div id="bottom" class="bar">
+  <div id="info"><span class="muted">Clique sur un pixel pour le sélectionner</span></div>
+  <div id="palette"></div>
+  <div id="actions">
+    <button id="cancelBtn" hidden>Annuler</button>
+    <button id="placeBtn" disabled>Placer</button>
+  </div>
+</div>
+
+<div id="nameModal">
+  <form id="nameForm">
+    <h2>Choisis ton pseudo</h2>
+    <span class="muted" style="font-size:14px;color:#666">Il sera visible sur chaque pixel que tu poses.</span>
+    <input id="nameInput" maxlength="20" placeholder="Ton pseudo" autocomplete="off">
+    <div id="nameErr"></div>
+    <button type="submit">C'est parti</button>
+  </form>
+</div>
+
+<script>
+(async () => {
+  const cfg = await (await fetch("/config")).json();
+  const W = cfg.width, H = cfg.height, palette = cfg.palette;
+  const rgb = palette.map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)));
+  const $ = id => document.getElementById(id);
+
+  // ---------- Pseudo ----------
+  let username = null;
+  try { username = localStorage.getItem("place-username"); } catch {}
+  function askName() {
+    $("nameInput").value = username || "";
+    $("nameModal").classList.add("show");
+    $("nameInput").focus();
+  }
+  $("nameForm").onsubmit = e => {
+    e.preventDefault();
+    const v = $("nameInput").value.trim().replace(/[^\p{L}\p{N}_\-. ]/gu, "");
+    if (v.length < 2) { $("nameErr").textContent = "2 caractères minimum (lettres, chiffres, - _ .)"; return; }
+    username = v.slice(0, 20);
+    try { localStorage.setItem("place-username", username); } catch {}
+    $("me").textContent = username;
+    $("nameModal").classList.remove("show");
+  };
+  $("me").onclick = askName;
+  if (username) $("me").textContent = username; else askName();
+
+  // ---------- Image ----------
+  const off = document.createElement("canvas");
+  off.width = W; off.height = H;
+  const offCtx = off.getContext("2d");
+  const img = offCtx.createImageData(W, H);
+  function setPixel(x, y, c) {
+    const i = (y * W + x) * 4, [r, g, b] = rgb[c] || [0, 0, 0];
+    img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b; img.data[i + 3] = 255;
+  }
+
+  // ---------- Affichage ----------
+  const canvas = $("board"), ctx = canvas.getContext("2d");
+  let scale = 4, offX = 0, offY = 0;
+  let hover = null, sel = null, color = 13, cooldownEnd = 0;
+
+  function resize() {
+    canvas.width = innerWidth * devicePixelRatio;
+    canvas.height = innerHeight * devicePixelRatio;
+    draw();
+  }
+  function center() {
+    scale = Math.max(1, Math.floor(Math.min(innerWidth, innerHeight) / Math.max(W, H) * 1.5));
+    offX = (innerWidth - W * scale) / 2;
+    offY = (innerHeight - H * scale) / 2;
+  }
+  function draw() {
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    ctx.fillStyle = "#ddd";
+    ctx.fillRect(0, 0, innerWidth, innerHeight);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(off, offX, offY, W * scale, H * scale);
+    if (sel) {
+      const sx = offX + sel.x * scale, sy = offY + sel.y * scale;
+      ctx.fillStyle = palette[color];
+      ctx.globalAlpha = 0.7;
+      ctx.fillRect(sx, sy, scale, scale);
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = Math.max(2, scale / 6);
+      ctx.strokeStyle = "#000";
+      ctx.strokeRect(sx - ctx.lineWidth / 2, sy - ctx.lineWidth / 2, scale + ctx.lineWidth, scale + ctx.lineWidth);
+    } else if (hover) {
+      ctx.strokeStyle = "#0008";
+      ctx.lineWidth = Math.max(1, scale / 10);
+      ctx.strokeRect(offX + hover.x * scale, offY + hover.y * scale, scale, scale);
+    }
+  }
+  function toCell(cx, cy) {
+    const x = Math.floor((cx - offX) / scale), y = Math.floor((cy - offY) / scale);
+    return x >= 0 && y >= 0 && x < W && y < H ? { x, y } : null;
+  }
+
+  // ---------- Infos du pixel ----------
+  function ago(t) {
+    const s = Math.round((Date.now() - t) / 1000);
+    if (s < 60) return `il y a ${s} s`;
+    if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
+    if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
+    return new Date(t).toLocaleString("fr-FR");
+  }
+  function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+  let infoReq = 0;
+  async function showInfo() {
+    if (!sel) { $("info").innerHTML = '<span class="muted">Clique sur un pixel pour le sélectionner</span>'; return; }
+    const req = ++infoReq, { x, y } = sel;
+    $("info").innerHTML = `<span class="muted">(${x}, ${y}) · chargement…</span>`;
+    const p = await (await fetch(`/pixel?x=${x}&y=${y}`)).json();
+    if (req !== infoReq) return;
+    $("info").innerHTML = p.empty
+      ? `<span class="muted">(${x}, ${y}) · personne n'a encore posé ici</span>`
+      : `(${x}, ${y}) · posé par <b>${esc(p.user)}</b> <span class="muted">${ago(p.placedAt)} · ${p.userTotal} pixel${p.userTotal > 1 ? "s" : ""} au total</span>`;
+  }
+  function select(cell) {
+    sel = cell;
+    $("cancelBtn").hidden = !sel;
+    showInfo(); updateButton(); draw();
+  }
+  $("cancelBtn").onclick = () => select(null);
+
+  // ---------- Palette ----------
+  palette.forEach((col, i) => {
+    const s = document.createElement("div");
+    s.className = "swatch" + (i === color ? " sel" : "");
+    s.style.background = col;
+    s.onclick = () => {
+      color = i;
+      document.querySelectorAll(".swatch").forEach((e, j) => e.classList.toggle("sel", j === i));
+      draw();
+    };
+    $("palette").appendChild(s);
+  });
+
+  // ---------- Souris / tactile ----------
+  let dragging = false, moved = false, lastX = 0, lastY = 0;
+  canvas.addEventListener("pointerdown", e => {
+    dragging = true; moved = false; lastX = e.clientX; lastY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", e => {
+    if (dragging) {
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
+      if (moved) { offX += dx; offY += dy; lastX = e.clientX; lastY = e.clientY; }
+    }
+    hover = toCell(e.clientX, e.clientY);
+    $("coords").textContent = hover ? `(${hover.x}, ${hover.y})` : "(–, –)";
+    draw();
+  });
+  canvas.addEventListener("pointerup", e => {
+    dragging = false;
+    if (!moved) select(toCell(e.clientX, e.clientY));
+  });
+  canvas.addEventListener("wheel", e => {
+    e.preventDefault();
+    const ns = Math.min(64, Math.max(0.5, scale * (e.deltaY < 0 ? 1.25 : 0.8)));
+    offX = e.clientX - (e.clientX - offX) * (ns / scale);
+    offY = e.clientY - (e.clientY - offY) * (ns / scale);
+    scale = ns;
+    draw();
+  }, { passive: false });
+  addEventListener("keydown", e => { if (e.key === "Escape") select(null); });
+
+  // ---------- Placer ----------
+  let ws;
+  function updateButton() {
+    const left = cooldownEnd - Date.now();
+    const btn = $("placeBtn");
+    if (!ws || ws.readyState !== 1) { btn.disabled = true; btn.textContent = "Connexion…"; }
+    else if (left > 0) {
+      btn.disabled = true;
+      const s = Math.ceil(left / 1000);
+      btn.textContent = s >= 60 ? `Attends ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `Attends ${s} s`;
+    }
+    else if (!sel) { btn.disabled = true; btn.textContent = "Choisis un pixel"; }
+    else { btn.disabled = false; btn.textContent = "Placer"; }
+  }
+  $("placeBtn").onclick = () => {
+    if (!username) return askName();
+    if (!sel || Date.now() < cooldownEnd) return;
+    ws.send(JSON.stringify({ type: "place", x: sel.x, y: sel.y, c: color, user: username }));
+  };
+
+  // ---------- Réseau ----------
+  function connect() {
+    ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host);
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => { $("conn").classList.add("on"); updateButton(); };
+    ws.onclose = () => {
+      $("conn").classList.remove("on"); updateButton();
+      setTimeout(connect, 2000);
+    };
+    ws.onmessage = ev => {
+      if (ev.data instanceof ArrayBuffer) {
+        const g = new Uint8Array(ev.data);
+        for (let i = 0; i < g.length; i++) setPixel(i % W, (i / W) | 0, g[i]);
+        offCtx.putImageData(img, 0, 0);
+        draw();
+        return;
+      }
+      const m = JSON.parse(ev.data);
+      if (m.type === "pixel") {
+        setPixel(m.x, m.y, m.c);
+        offCtx.putImageData(img, 0, 0, m.x, m.y, 1, 1);
+        if (sel && sel.x === m.x && sel.y === m.y) showInfo();
+        draw();
+      } else if (m.type === "cooldown") {
+        cooldownEnd = Date.now() + m.wait;
+        updateButton();
+      } else if (m.type === "online") {
+        $("online").textContent = m.count;
+      } else if (m.type === "error") {
+        $("info").innerHTML = `<span style="color:#c00">${esc(m.message)}</span>`;
+        if (/pseudo/i.test(m.message)) askName();
+      }
+    };
+  }
+  setInterval(updateButton, 250);
+
+  addEventListener("resize", resize);
+  center(); resize(); connect();
+})();
+</script>
+</body>
+</html>

@@ -9,6 +9,9 @@ const crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 const db = require("./db");
 
+// ---- Version (à augmenter à chaque mise à jour) ----
+const VERSION = "0.08";
+
 // ---- Réglages ----
 const PORT = process.env.PORT || 3000;
 const WIDTH = 500;
@@ -56,7 +59,7 @@ app.use(express.static(path.join(__dirname, "public")));
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 
 app.get("/config", (req, res) =>
-  res.json({ width: WIDTH, height: HEIGHT, cooldown: COOLDOWN_MS, palette: PALETTE, chatMax: CHAT_MAX_LENGTH, modEnabled: !!ADMIN_PASSWORD })
+  res.json({ version: VERSION, width: WIDTH, height: HEIGHT, cooldown: COOLDOWN_MS, palette: PALETTE, chatMax: CHAT_MAX_LENGTH, modEnabled: !!ADMIN_PASSWORD })
 );
 
 app.get("/pixel", (req, res) => {
@@ -265,6 +268,6 @@ wss.on("connection", (ws, req) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Mini r/place sur http://localhost:${PORT}`);
+  console.log(`Mini r/place v${VERSION} sur http://localhost:${PORT}`);
   if (!ADMIN_PASSWORD) console.log("Modération désactivée : définis ADMIN_PASSWORD pour l'activer");
 });

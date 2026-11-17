@@ -122,6 +122,7 @@
 
   #askOk.danger { background: #e50000; }
   #board.zone { cursor: cell; }
+  #version { position: fixed; right: 8px; bottom: 6px; font-size: 11px; color: #888; z-index: 1; pointer-events: none; }
   #toast { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); background: #222; color: #fff;
            padding: 10px 16px; border-radius: 10px; font-size: 14px; display: none; z-index: 20; }
   #bannedBar { position: fixed; top: 0; left: 0; right: 0; background: #c00; color: #fff; text-align: center;
@@ -248,6 +249,7 @@
 </div>
 
 <div id="toast"></div>
+<div id="version"></div>
 
 <script>
 (async () => {
@@ -255,6 +257,7 @@
   const W = cfg.width, H = cfg.height, palette = cfg.palette;
   const rgb = palette.map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)));
   const $ = id => document.getElementById(id);
+  $("version").textContent = "v" + (cfg.version || "?");
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const store = {
     get: k => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -364,6 +367,8 @@
   const canvas = $("board"), ctx = canvas.getContext("2d");
   let hover = null, sel = null, color = Number(store.get("place-color") ?? 13), picking = false;
   let cooldownEnd = 0, isAdmin = false, banned = false, flashes = [];
+  // "mouse" = on vise avec la souris ; "sel" = on vise avec le viseur (clic ou flèches)
+  let aim = "sel", mousePos = null;
   let drawQueued = false;
   function requestDraw() {
     if (drawQueued) return;
@@ -427,7 +432,7 @@
       ctx.strokeRect(sx - g, sy - g, s + 2 * g, s + 2 * g);
     }
 
-    if (hover && !sel && s >= 4) {
+    if (hover && s >= 4 && (!sel || (aim === "mouse" && (hover.x !== sel.x || hover.y !== sel.y)))) {
       ctx.strokeStyle = "#0006"; ctx.lineWidth = 1;
       ctx.strokeRect(ox + hover.x * s + 0.5, oy + hover.y * s + 0.5, s - 1, s - 1);
     }
@@ -495,6 +500,7 @@
   // ---------- Sélection ----------
   function select(cell, { focus = true } = {}) {
     sel = cell;
+    aim = "sel";
     if (!sel) closePicker();
     $("coords").textContent = sel ? `(${sel.x}, ${sel.y})` : hover ? `(${hover.x}, ${hover.y})` : "(–, –)";
     if (sel && focus) flyTo(sel.x + 0.5, sel.y + 0.5, Math.max(cam.s, FOCUS_S));
@@ -619,8 +625,9 @@
   // Pose directe avec une touche : sur le pixel sous la souris, sinon sur le pixel sélectionné
   function quickPlace(i) {
     if (!username) return askName();
-    const target = hover || sel;
-    if (!target) return toast("Survole un pixel avec la souris, puis appuie sur la touche");
+    const under = mousePos ? toCell(mousePos.x, mousePos.y) : null;
+    const target = aim === "mouse" ? (under || sel) : (sel || under);
+    if (!target) return toast("Survole un pixel avec la souris (ou choisis-en un), puis appuie sur la touche");
     setColor(i);
     if (!canPlace()) return;
     wsSend({ type: "place", x: target.x, y: target.y, c: i, user: username });
@@ -698,6 +705,8 @@
   });
   canvas.addEventListener("pointermove", e => {
     if (e.pointerType === "mouse") {
+      if (!mousePos || Math.hypot(e.clientX - mousePos.x, e.clientY - mousePos.y) > 2) aim = "mouse";
+      mousePos = { x: e.clientX, y: e.clientY };
       hover = toCell(e.clientX, e.clientY);
       if (!sel) $("coords").textContent = hover ? `(${hover.x}, ${hover.y})` : "(–, –)";
     }
@@ -743,7 +752,7 @@
   }
   canvas.addEventListener("pointerup", pointerEnd);
   canvas.addEventListener("pointercancel", pointerEnd);
-  canvas.addEventListener("pointerleave", () => { hover = null; requestDraw(); });
+  canvas.addEventListener("pointerleave", () => { hover = null; mousePos = null; if (aim === "mouse") aim = "sel"; requestDraw(); });
   canvas.addEventListener("wheel", e => {
     e.preventDefault();
     anim = null;

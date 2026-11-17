@@ -74,3 +74,16 @@ Prochaines étapes possibles : connexion avec Discord/Google, timelapse.
 ## Mettre en ligne
 
 Le fichier `place.db` doit être sur un disque permanent : sur Railway, ajoute un volume et définis la variable `DB_FILE=/data/place.db` (si le volume est monté sur `/data`).
+
+## Historique des versions
+
+Le numéro de version s'affiche en bas à droite du site.
+
+- **v0.08** : correction, la pose au clavier suit le viseur après un déplacement avec les flèches
+- **v0.07** : touches des couleurs modifiables par chaque joueur
+- **v0.06** : délai d'1 seconde, pose directe avec les lettres du clavier
+- **v0.05** : effacer une zone en la dessinant, confirmations dans la page
+- **v0.04** : placement comme le vrai r/place (viseur, bulle, palette ✕/✓, zoom à deux doigts, flèches)
+- **v0.03** : chat et outils de modération
+- **v0.02** : base de données SQLite et « qui a posé ce pixel »
+- **v0.01** : première version (grille partagée en temps réel)

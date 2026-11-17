@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timelapse · Mini r/place</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: #1a1a1b; color: #eee; }
+  body { display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 14px; padding: 12px 16px; flex-wrap: wrap; }
+  header a { color: #ff7a45; text-decoration: none; font-weight: 600; }
+  header h1 { font-size: 18px; margin: 0; }
+  #stats { color: #999; font-size: 13px; }
+  main { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; padding: 8px; }
+  #view { max-width: 100%; max-height: 100%; image-rendering: pixelated; background: #fff; box-shadow: 0 6px 30px #0008; }
+  #when { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); background: #000b; padding: 5px 12px;
+          border-radius: 8px; font-size: 14px; font-variant-numeric: tabular-nums; }
+  #empty { position: absolute; color: #999; display: none; }
+  .controls { display: flex; align-items: center; gap: 10px; padding: 10px 16px; flex-wrap: wrap; background: #262627; }
+  button, select { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; background: #3a3a3c; color: #eee; }
+  button.main { background: #ff4500; color: #fff; min-width: 54px; }
+  button:disabled { opacity: .5; cursor: default; }
+  #seek { flex: 1; min-width: 160px; accent-color: #ff4500; }
+  label { font-size: 13px; color: #aaa; display: flex; align-items: center; gap: 6px; }
+  #rec { background: #e50000; color: #fff; }
+  #recState { font-size: 13px; color: #ffb199; }
+</style>
+</head>
+<body>
+<header>
+  <a href="/">← Retour au jeu</a>
+  <h1>🎬 Timelapse</h1>
+  <span id="stats">Chargement…</span>
+</header>
+
+<main>
+  <canvas id="view"></canvas>
+  <div id="when"></div>
+  <div id="empty">Aucun pixel posé pour l'instant.</div>
+</main>
+
+<div class="controls">
+  <button id="play" class="main" title="Lecture / pause (Espace)">▶</button>
+  <button id="restart" title="Revenir au début">⏮</button>
+  <input id="seek" type="range" min="0" max="0" value="0">
+  <label>Durée
+    <select id="dur">
+      <option value="10">10 s</option>
+      <option value="20" selected>20 s</option>
+      <option value="30">30 s</option>
+      <option value="60">1 min</option>
+      <option value="180">3 min</option>
+    </select>
+  </label>
+</div>
+<div class="controls">
+  <label>Vidéo
+    <select id="fmt">
+      <option value="tiktok">Verticale 1080×1920 (TikTok)</option>
+      <option value="square">Carrée 1080×1080</option>
+    </select>
+  </label>
+  <button id="rec">📹 Créer la vidéo</button>
+  <span id="recState"></span>
+</div>
+
+<script>
+(async () => {
+  const $ = id => document.getElementById(id);
+  const cfg = await (await fetch("/config")).json();
+  const W = cfg.width, H = cfg.height;
+  const rgb = cfg.palette.map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)));
+
+  // ---------- Historique ----------
+  const buf = await (await fetch("/api/history")).arrayBuffer();
+  const dv = new DataView(buf);
+  const N = Math.floor(buf.byteLength / 9);
+  const ev = i => { const o = i * 9; return { x: dv.getUint16(o, true), y: dv.getUint16(o + 2, true), c: dv.getUint8(o + 4), t: dv.getUint32(o + 5, true) * 1000 }; };
+  const fmtDate = t => new Date(t).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  if (N) {
+    $("stats").textContent = `${N.toLocaleString("fr-FR")} pixels · du ${fmtDate(ev(0).t)} au ${fmtDate(ev(N - 1).t)}`;
+  } else {
+    $("stats").textContent = "0 pixel";
+    $("empty").style.display = "block";
+  }
+
+  // ---------- Toile reconstruite ----------
+  const board = document.createElement("canvas");
+  board.width = W; board.height = H;
+  const bctx = board.getContext("2d");
+  const img = bctx.createImageData(W, H);
+  let cur = 0; // nombre d'événements appliqués
+  function reset() {
+    for (let i = 0; i < W * H; i++) { const j = i * 4; img.data[j] = img.data[j + 1] = img.data[j + 2] = img.data[j + 3] = 255; }
+    cur = 0;
+  }
+  function applyTo(k) {
+    k = Math.max(0, Math.min(N, k | 0));
+    if (k < cur) reset();
+    for (; cur < k; cur++) {
+      const o = cur * 9, x = dv.getUint16(o, true), y = dv.getUint16(o + 2, true), c = dv.getUint8(o + 4);
+      if (x >= W || y >= H) continue;
+      const j = (y * W + x) * 4, col = rgb[c] || [0, 0, 0];
+      img.data[j] = col[0]; img.data[j + 1] = col[1]; img.data[j + 2] = col[2];
+    }
+    bctx.putImageData(img, 0, 0);
+  }
+  reset(); bctx.putImageData(img, 0, 0);
+
+  // ---------- Affichage ----------
+  const view = $("view"), vctx = view.getContext("2d");
+  function fitView() {
+    const box = view.parentElement.getBoundingClientRect();
+    const s = Math.max(1, Math.floor(Math.min(box.width - 16, box.height - 16) / Math.max(W, H) * devicePixelRatio));
+    view.width = W * s; view.height = H * s;
+    view.style.width = (W * s / devicePixelRatio) + "px"; view.style.height = (H * s / devicePixelRatio) + "px";
+    render();
+  }
+  function render() {
+    vctx.imageSmoothingEnabled = false;
+    vctx.drawImage(board, 0, 0, view.width, view.height);
+    $("when").textContent = cur ? fmtDate(ev(cur - 1).t) : N ? "Début" : "";
+    $("seek").value = cur;
+  }
+  $("seek").max = N;
+  addEventListener("resize", fitView);
+
+  // ---------- Lecture ----------
+  let playing = false, t0 = 0, k0 = 0;
+  const duration = () => Number($("dur").value) * 1000;
+  function setPlaying(on) {
+    playing = on && N > 0;
+    $("play").textContent = playing ? "⏸" : "▶";
+    if (playing) {
+      if (cur >= N) { applyTo(0); }
+      t0 = performance.now(); k0 = cur;
+      requestAnimationFrame(tick);
+    }
+  }
+  function tick(now) {
+    if (!playing) return;
+    const k = k0 + (now - t0) / duration() * N;
+    applyTo(k); render();
+    if (cur >= N) return setPlaying(false);
+    requestAnimationFrame(tick);
+  }
+  $("play").onclick = () => setPlaying(!playing);
+  $("restart").onclick = () => { applyTo(0); render(); if (playing) setPlaying(true); };
+  $("seek").oninput = () => { applyTo(Number($("seek").value)); render(); if (playing) { t0 = performance.now(); k0 = cur; } };
+  $("dur").onchange = () => { if (playing) { t0 = performance.now(); k0 = cur; } };
+  addEventListener("keydown", e => { if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); } });
+
+  // ---------- Vidéo ----------
+  function pickMime() {
+    const list = ["video/mp4;codecs=avc1.42E01E", "video/mp4", "video/webm;codecs=vp9", "video/webm"];
+    return list.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+  }
+  $("rec").onclick = async () => {
+    if (!N) return;
+    const mime = pickMime();
+    if (!mime) { $("recState").textContent = "Ton navigateur ne sait pas créer de vidéo (essaie Chrome)."; return; }
+    setPlaying(false);
+    const vertical = $("fmt").value === "tiktok";
+    const out = document.createElement("canvas");
+    out.width = 1080; out.height = vertical ? 1920 : 1080;
+    const o = out.getContext("2d");
+    const size = vertical ? 1000 : 900;
+    const bx = (out.width - size) / 2, by = vertical ? (out.height - size) / 2 - 40 : 120;
+    const host = location.host;
+    function drawFrame() {
+      o.fillStyle = "#1a1a1b"; o.fillRect(0, 0, out.width, out.height);
+      o.imageSmoothingEnabled = false;
+      o.fillStyle = "#000"; o.fillRect(bx - 6, by - 6, size + 12, size + 12);
+      o.drawImage(board, bx, by, size, size);
+      o.fillStyle = "#fff"; o.textAlign = "center";
+      o.font = `700 ${vertical ? 64 : 48}px system-ui, sans-serif`;
+      o.fillText("Timelapse", out.width / 2, vertical ? 300 : 80);
+      o.font = `600 ${vertical ? 40 : 30}px system-ui, sans-serif`;
+      o.fillStyle = "#ccc";
+      o.fillText(cur ? fmtDate(ev(cur - 1).t) : "", out.width / 2, by + size + (vertical ? 80 : 50));
+      if (vertical) {
+        o.fillStyle = "#ff4500"; o.font = "700 40px system-ui, sans-serif";
+        o.fillText(host, out.width / 2, out.height - 220);
+      }
+    }
+    const stream = out.captureStream(30);
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+    const chunks = [];
+    rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+    const done = new Promise(r => rec.onstop = r);
+    $("rec").disabled = $("play").disabled = true;
+    applyTo(0); drawFrame();
+    rec.start(250);
+    const D = duration(), HOLD = 2000, start = performance.now();
+    await new Promise(resolve => {
+      (function loop(now) {
+        const el = now - start;
+        applyTo(Math.min(1, el / D) * N); render(); drawFrame();
+        $("recState").textContent = `Enregistrement… ${Math.min(100, Math.round(el / (D + HOLD) * 100))} %`;
+        if (el < D + HOLD) requestAnimationFrame(loop); else resolve();
+      })(start);
+    });
+    rec.stop(); await done;
+    const blob = new Blob(chunks, { type: mime.split(";")[0] });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `timelapse-${new Date().toISOString().slice(0, 10)}.${mime.includes("mp4") ? "mp4" : "webm"}`;
+    document.body.appendChild(a); a.click(); a.remove();
+    $("recState").textContent = mime.includes("mp4") ? "Vidéo téléchargée ✔" : "Vidéo téléchargée ✔ (format WebM)";
+    $("rec").disabled = $("play").disabled = false;
+  };
+
+  fitView();
+  if (N) { applyTo(N); render(); }
+})();
+</script>
+</body>
+</html>

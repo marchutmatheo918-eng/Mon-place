@@ -1,9 +1,10 @@
 // Base de données SQLite (fichier place.db)
-// - pixels  : historique complet, une ligne par pixel posé
-// - canvas  : état actuel, une ligne par case
-// - chat    : messages du chat
-// - bans    : pseudos et adresses IP bannis
-// - mod_log : journal des actions de modération
+// - pixels   : historique complet (sert aussi au timelapse et au classement)
+// - canvas   : état actuel, une ligne par case
+// - chat     : messages du chat
+// - bans     : pseudos et adresses IP bannis
+// - mod_log  : journal des actions de modération
+// - settings : réglages (annonce en cours, événement, version de la palette)
 
 const Database = require("better-sqlite3");
 const path = require("path");
@@ -19,6 +20,7 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_pixels_xy   ON pixels (x, y);
   CREATE INDEX IF NOT EXISTS idx_pixels_user ON pixels (user);
+  CREATE INDEX IF NOT EXISTS idx_pixels_time ON pixels (placed_at);
 
   CREATE TABLE IF NOT EXISTS canvas (
     x INTEGER NOT NULL, y INTEGER NOT NULL, color INTEGER NOT NULL,
@@ -35,18 +37,59 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS bans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL,            -- 'ip' ou 'name'
-    value TEXT NOT NULL,
-    user TEXT,                     -- pseudo concerné (pour l'affichage)
-    reason TEXT,
-    banned_at INTEGER NOT NULL
+    kind TEXT NOT NULL, value TEXT NOT NULL, user TEXT, reason TEXT, banned_at INTEGER NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS mod_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     action TEXT NOT NULL, details TEXT, ip TEXT, at INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY, value TEXT
+  );
 `);
+
+// Les actions de modération sont aussi écrites dans l'historique (pour le timelapse)
+// sous ce nom, qu'aucun joueur ne peut prendre (les crochets sont interdits dans les pseudos).
+const MOD_USER = "[modération]";
+
+// ---------- Réglages ----------
+const getSettingStmt = db.prepare("SELECT value FROM settings WHERE key = ?");
+const setSettingStmt = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value");
+function getSetting(key) {
+  const r = getSettingStmt.get(key);
+  if (!r || r.value == null) return null;
+  try { return JSON.parse(r.value); } catch { return null; }
+}
+const setSetting = (key, value) => setSettingStmt.run(key, value == null ? null : JSON.stringify(value));
+
+// ---------- Passage de 16 à 32 couleurs (une seule fois) ----------
+// Chaque ancienne couleur est remplacée par la plus proche de la nouvelle palette.
+function migratePalette(oldPalette, newPalette, version) {
+  if (getSetting("palette_version") === version) return 0;
+  const hasPixels = db.prepare("SELECT COUNT(*) AS n FROM pixels").get().n > 0;
+  if (hasPixels && getSetting("palette_version") == null) {
+    const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+    const nearest = oldPalette.map((h) => {
+      const a = rgb(h);
+      let best = 0, bestD = Infinity;
+      newPalette.forEach((n, j) => {
+        const b = rgb(n);
+        const d = (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+        if (d < bestD) { bestD = d; best = j; }
+      });
+      return best;
+    });
+    const cases = nearest.map((n, i) => `WHEN ${i} THEN ${n}`).join(" ");
+    db.transaction(() => {
+      db.exec(`UPDATE pixels SET color = CASE color ${cases} ELSE color END`);
+      db.exec(`UPDATE canvas SET color = CASE color ${cases} ELSE color END`);
+    })();
+  }
+  setSetting("palette_version", version);
+  return hasPixels ? 1 : 0;
+}
 
 // ---------- Pixels ----------
 const insertHistory = db.prepare("INSERT INTO pixels (x, y, color, user, ip, placed_at) VALUES (?, ?, ?, ?, ?, ?)");
@@ -63,29 +106,75 @@ const placePixel = db.transaction((x, y, color, user, ip, ts) => {
 const getPixel = db.prepare("SELECT color, user, placed_at FROM canvas WHERE x = ? AND y = ?");
 const allCanvas = db.prepare("SELECT x, y, color FROM canvas");
 const countUser = db.prepare("SELECT COUNT(*) AS n FROM pixels WHERE user = ?");
-const stats = db.prepare("SELECT COUNT(*) AS total, COUNT(DISTINCT user) AS players FROM pixels");
+const stats = db.prepare(`SELECT COUNT(*) AS total, COUNT(DISTINCT user) AS players FROM pixels WHERE user NOT LIKE '[%'`);
 
-// Annule tous les pixels encore visibles d'un pseudo : chaque case reprend
-// la couleur qu'elle avait avant (dernier pixel posé par quelqu'un d'autre).
+// Annule les pixels encore visibles d'un pseudo : chaque case reprend sa couleur d'avant
 const cellsOfUser = db.prepare("SELECT x, y FROM canvas WHERE user = ?");
 const previousPixel = db.prepare(
   "SELECT color, user, placed_at FROM pixels WHERE x = ? AND y = ? AND user != ? ORDER BY id DESC LIMIT 1"
 );
-const rollbackUser = db.transaction((user) => {
+const rollbackUser = db.transaction((user, ip) => {
+  const now = Date.now();
   const cells = cellsOfUser.all(user);
-  const changes = [];
   for (const { x, y } of cells) {
     const prev = previousPixel.get(x, y, user);
     if (prev) upsertCanvas.run(x, y, prev.color, prev.user, prev.placed_at);
     else deleteCanvas.run(x, y);
-    changes.push({ x, y, color: prev ? prev.color : 0 });
+    insertHistory.run(x, y, prev ? prev.color : 0, MOD_USER, ip, now);
   }
-  return changes;
+  return cells.length;
 });
 
-// Efface une zone rectangulaire (remet en blanc)
+// Efface une zone (remise en blanc)
+const cellsInZone = db.prepare("SELECT x, y FROM canvas WHERE x BETWEEN ? AND ? AND y BETWEEN ? AND ?");
 const clearZoneStmt = db.prepare("DELETE FROM canvas WHERE x BETWEEN ? AND ? AND y BETWEEN ? AND ?");
-const clearZone = (x1, y1, x2, y2) => clearZoneStmt.run(x1, x2, y1, y2).changes;
+const clearZone = db.transaction((x1, y1, x2, y2, ip) => {
+  const now = Date.now();
+  const cells = cellsInZone.all(x1, x2, y1, y2);
+  for (const { x, y } of cells) insertHistory.run(x, y, 0, MOD_USER, ip, now);
+  clearZoneStmt.run(x1, x2, y1, y2);
+  return cells.length;
+});
+
+// ---------- Timelapse : tout l'historique en binaire (9 octets par pixel) ----------
+// x (2 octets), y (2 octets), couleur (1 octet), date en secondes (4 octets)
+const historyCount = db.prepare("SELECT COUNT(*) AS n FROM pixels");
+const historyAll = db.prepare("SELECT x, y, color, placed_at FROM pixels ORDER BY id");
+function historyBinary() {
+  const n = historyCount.get().n;
+  const buf = Buffer.alloc(n * 9);
+  let o = 0;
+  for (const r of historyAll.iterate()) {
+    if (o + 9 > buf.length) break;
+    buf.writeUInt16LE(r.x, o); buf.writeUInt16LE(r.y, o + 2); buf.writeUInt8(r.color, o + 4);
+    buf.writeUInt32LE(Math.floor(r.placed_at / 1000), o + 5);
+    o += 9;
+  }
+  return buf.subarray(0, o);
+}
+
+// ---------- Classement ----------
+const topSince = db.prepare(`
+  SELECT user, COUNT(*) AS n FROM pixels
+  WHERE placed_at >= ? AND user NOT LIKE '[%'
+  GROUP BY user ORDER BY n DESC, MIN(id) ASC LIMIT ?
+`);
+const countSince = db.prepare("SELECT COUNT(*) AS n FROM pixels WHERE user = ? AND placed_at >= ?");
+const rankSince = db.prepare(`
+  SELECT COUNT(*) + 1 AS r FROM (
+    SELECT COUNT(*) AS n FROM pixels WHERE placed_at >= ? AND user NOT LIKE '[%' GROUP BY user
+  ) WHERE n > ?
+`);
+const playersSince = db.prepare(`SELECT COUNT(DISTINCT user) AS n FROM pixels WHERE placed_at >= ? AND user NOT LIKE '[%'`);
+function leaderboard(since, me, limit = 20) {
+  const top = topSince.all(since, limit);
+  let mine = null;
+  if (me) {
+    const n = countSince.get(me, since).n;
+    if (n > 0) mine = { user: me, n, rank: rankSince.get(since, n).r };
+  }
+  return { top, me: mine, players: playersSince.get(since).n };
+}
 
 // ---------- Chat ----------
 const insertChat = db.prepare("INSERT INTO chat (user, text, ip, is_mod, sent_at) VALUES (?, ?, ?, ?, ?)");
@@ -113,6 +202,9 @@ const ipsOfUser = db.prepare(`
 const insertLog = db.prepare("INSERT INTO mod_log (action, details, ip, at) VALUES (?, ?, ?, ?)");
 
 module.exports = {
+  MOD_USER,
+  getSetting, setSetting, migratePalette,
+
   placePixel,
   getPixel: (x, y) => getPixel.get(x, y),
   allCanvas: () => allCanvas.all(),
@@ -120,6 +212,8 @@ module.exports = {
   stats: () => stats.get(),
   rollbackUser,
   clearZone,
+  historyBinary,
+  leaderboard,
 
   addChat: (user, text, ip, isMod, ts) => insertChat.run(user, text, ip, isMod ? 1 : 0, ts).lastInsertRowid,
   recentChat: (n = 50) => recentChat.all(n),

@@ -1,6 +1,6 @@
 # Mini r/place
 
-Une grille de 500×500 pixels partagée en temps réel, avec 16 couleurs, une base de données, « qui a posé ce pixel », un chat et des outils de modération.
+Une grille de 500×500 pixels partagée en temps réel, avec 32 couleurs, un timelapse, un classement, des annonces et des événements, une base de données, « qui a posé ce pixel », un chat et des outils de modération.
 
 ## Lancer en local
 
@@ -24,6 +24,21 @@ Ouvre ensuite http://localhost:3000.
 - Molette : zoomer
 - Cliquer-glisser : se déplacer
 - Échap : annuler la sélection
+
+## Timelapse
+
+Bouton 🎬 en haut (ou adresse `/timelapse`) : rejoue toute l'histoire de la toile.
+Choisis la durée, puis « 📹 Créer la vidéo » pour télécharger une vidéo verticale (TikTok) ou carrée.
+
+## Classement
+
+Bouton 🏆 en haut : les 20 joueurs qui ont posé le plus de pixels, sur 24 heures ou depuis le début.
+
+## Annonces et événements (modération)
+
+- **📢 Annonce** : un message affiché en haut pour tout le monde (chacun peut le masquer).
+- **🎉 Événement** : un nom, une date de début et de fin, un délai spécial pendant l'événement (facultatif)
+  et l'option « toile fermée avant et après ». Un compte à rebours s'affiche pour tout le monde.
 
 ## Le chat
 
@@ -79,6 +94,7 @@ Le fichier `place.db` doit être sur un disque permanent : sur Railway, ajoute u
 
 Le numéro de version s'affiche en bas à droite du site.
 
+- **v0.09** : timelapse avec export vidéo, classement, annonces, événements, 32 couleurs (les anciens pixels sont convertis automatiquement)
 - **v0.08** : correction, la pose au clavier suit le viseur après un déplacement avec les flèches
 - **v0.07** : touches des couleurs modifiables par chaque joueur
 - **v0.06** : délai d'1 seconde, pose directe avec les lettres du clavier

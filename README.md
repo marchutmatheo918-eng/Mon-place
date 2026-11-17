@@ -25,6 +25,12 @@ Ouvre ensuite http://localhost:3000.
 - Cliquer-glisser : se déplacer
 - Échap : annuler la sélection
 
+## Overlay
+
+Bouton 🖼️ en haut : choisis une image, elle s'affiche par-dessus la toile pour voir où poser tes pixels et de quelle couleur.
+Réglages : position (x, y, « ← sélection » ou ⌖), largeur, affichage en points ou en transparence, opacité.
+L'overlay n'est visible que pour toi et reste enregistré dans ton navigateur.
+
 ## Timelapse
 
 Bouton 🎬 en haut (ou adresse `/timelapse`) : rejoue toute l'histoire de la toile.
@@ -118,6 +124,7 @@ Le fichier `place.db` doit être sur un disque permanent : sur Railway, ajoute u
 
 Le numéro de version s'affiche en bas à droite du site.
 
+- **v0.14** : overlay pour les joueurs (image affichée par-dessus la toile pour recopier un dessin)
 - **v0.13** : outil modo « Dessiner une image » (aperçu, taille, vitesse, suivi et arrêt)
 - **v0.12** : sécurité renforcée (limites de connexions, de débit et de requêtes, compression, prise en charge de Cloudflare)
 - **v0.11** : la caméra suit le viseur quand on se déplace avec les flèches

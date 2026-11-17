@@ -11,7 +11,7 @@ const { WebSocketServer } = require("ws");
 const db = require("./db");
 
 // ---- Version (à augmenter à chaque mise à jour) ----
-const VERSION = "0.13";
+const VERSION = "0.14";
 
 // ---- Réglages ----
 const PORT = process.env.PORT || 3000;

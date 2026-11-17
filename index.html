@@ -101,6 +101,22 @@
   #chatForm button { background: #ff4500; color: #fff; padding: 8px 12px; }
 
   /* Panneau de modération */
+  #tplPanel { right: 12px; top: 64px; width: 290px; max-height: calc(100vh - 80px); overflow-y: auto;
+              padding: 14px; display: none; font-size: 14px; z-index: 4; }
+  #tplPanel.open { display: block; }
+  #tplPanel h3 { margin: 0 0 6px; font-size: 16px; }
+  #tplPanel .row { display: flex; gap: 6px; margin-bottom: 8px; align-items: center; }
+  #tplPanel .row input { width: 100%; }
+  #tplPanel .row input[type=checkbox], #tplPanel .row input[type=range] { width: auto; }
+  #tplPanel input.n { width: 60px; }
+  #tplPanel select { font: inherit; padding: 7px; border: 2px solid #ccc; border-radius: 8px; width: 100%; background: #fff; }
+  #tplPanel label.full { display: flex; flex-direction: column; gap: 2px; width: 100%; font-size: 12px; color: #555; }
+  #tplPanel .help { font-size: 12px; color: #666; margin: 0 0 10px; line-height: 1.4; }
+  #tplDrop { border: 2px dashed #bbb; border-radius: 10px; padding: 12px; text-align: center; font-size: 13px; color: #666; cursor: pointer; width: 100%; }
+  #tplDrop.on { border-color: #ff4500; background: #fff3ee; }
+  #tplThumb { max-width: 100%; max-height: 90px; image-rendering: pixelated; display: none; margin: 6px auto 0; border-radius: 4px;
+              background: repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50% / 12px 12px; }
+  #tplPanel button.wide { width: 100%; }
   #modPanel { right: 12px; top: 64px; width: 290px; max-height: calc(100vh - 80px); overflow-y: auto;
               padding: 14px; display: none; font-size: 14px; }
   body.admin #modPanel.open { display: block; }
@@ -182,6 +198,7 @@
     body.chat-open #banners { top: 310px; }
     #chat { width: calc(100vw - 24px); height: 240px; bottom: auto; top: 60px; }
     #modPanel { left: 12px; right: 12px; width: auto; top: 60px; }
+    #tplPanel { left: 12px; right: 12px; width: auto; top: 60px; max-height: calc(100vh - 300px); }
     .swatch { width: 34px; height: 34px; }
     #coords { display: none; }
   }
@@ -195,6 +212,7 @@
   <span><span id="conn" class="dot"></span><span id="online">0</span> en ligne</span>
   <span id="coords">(–, –)</span>
   <span>Pseudo : <span id="me" title="Changer de pseudo">–</span></span>
+  <button id="tplBtn" class="iconBtn" title="Overlay">🖼️</button>
   <button id="lbBtn" class="iconBtn" title="Classement">🏆</button>
   <a id="tlBtn" class="iconBtn" href="/timelapse" title="Timelapse">🎬</a>
   <button id="modBtn" class="iconBtn" title="Modération" hidden>🛡️</button>
@@ -228,6 +246,25 @@
       <input id="chatInput" placeholder="Écris un message…">
       <button type="submit">Envoyer</button>
     </form>
+  </div>
+</div>
+
+<div id="tplPanel" class="bar">
+  <h3>🖼️ Overlay</h3>
+  <p class="help">Affiche une image par-dessus la toile pour voir où poser tes pixels et de quelle couleur. Elle n'est visible que pour toi.</p>
+  <div class="row"><label id="tplDrop">📁 Choisis une image (ou glisse-la ici)
+    <input id="tplFile" type="file" accept="image/*" hidden><img id="tplThumb" alt=""></label></div>
+  <div id="tplOpts" hidden>
+    <div class="row"><input id="tplX" class="n" placeholder="x"><input id="tplY" class="n" placeholder="y">
+      <button class="small grey" id="tplHere" title="Coin haut-gauche = pixel sélectionné">← sélection</button>
+      <button class="small grey" id="tplCenter" title="Centrer sur l'écran">⌖</button></div>
+    <div class="row"><label class="full">Largeur en pixels (la hauteur suit)<input id="tplW" type="number" min="1" max="500"></label></div>
+    <div class="row"><label><input type="checkbox" id="tplSkipAlpha" checked> ignorer le fond transparent</label></div>
+    <div class="row"><label class="full">Affichage
+      <select id="tplStyle"><option value="dots">Points au centre des cases (on voit la toile dessous)</option><option value="full">Image en transparence</option></select></label></div>
+    <div class="row"><label class="full">Opacité <input type="range" id="tplOpacity" min="10" max="100" value="60"></label></div>
+    <div class="row"><label><input type="checkbox" id="tplShow" checked> afficher l'overlay</label></div>
+    <div class="row"><button class="grey wide" id="tplRemove">🗑️ Retirer l'overlay</button></div>
   </div>
 </div>
 
@@ -418,7 +455,9 @@
   off.width = W; off.height = H;
   const offCtx = off.getContext("2d");
   const img = offCtx.createImageData(W, H);
+  const cells = new Uint8Array(W * H); // couleur de chaque case (pour le modèle)
   function setPixel(x, y, c) {
+    cells[y * W + x] = c;
     const i = (y * W + x) * 4, [r, g, b] = rgb[c] || [0, 0, 0];
     img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b; img.data[i + 3] = 255;
   }
@@ -529,6 +568,23 @@
       ctx.strokeStyle = "#e50000"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
       ctx.strokeRect(ox + z.x * s, oy + z.y * s, z.w * s, z.h * s);
       ctx.setLineDash([]);
+    }
+
+    // Overlay (joueurs)
+    if (tpl && tpl.show) {
+      const tx = ox + tpl.x * s, ty = oy + tpl.y * s;
+      if (tpl.style === "dots" && s >= 5) {
+        ctx.globalAlpha = Math.min(1, tpl.opacity + 0.3);
+        ctx.drawImage(tplDots, tx, ty, tpl.w * s, tpl.h * s);
+      } else {
+        ctx.globalAlpha = tpl.opacity;
+        ctx.drawImage(tplCanvas, tx, ty, tpl.w * s, tpl.h * s);
+      }
+      ctx.globalAlpha = 1;
+      if (tplPanelOpen()) {
+        ctx.strokeStyle = "#02be01"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+        ctx.strokeRect(tx, ty, tpl.w * s, tpl.h * s); ctx.setLineDash([]);
+      }
     }
 
     // Aperçu de l'image à dessiner (modos)
@@ -930,6 +986,7 @@
   addEventListener("keydown", e => {
     if (typing() || document.querySelector(".modal.show")) return;
     const k = e.key;
+    if (k === "Escape" && tplPanelOpen() && !sel && !picking) { $("tplPanel").classList.remove("open"); requestDraw(); return; }
     if (k === "Escape") {
       if (zoneMode) { $("zoneDrawBtn").click(); return; }
       picking ? closePicker() : select(null);
@@ -1060,6 +1117,107 @@
     if (await ask("Supprimer l'événement ?", `« ${event.title} » ne sera plus affiché.`, { ok: "Supprimer" })) wsSend({ type: "mod", action: "clearEvent" });
   };
 
+  // ---------- Overlay (pour tous les joueurs) ----------
+  // tpl = { x, y, w, h, data (Uint8Array, 255 = transparent), name, opacity, style, show }
+  let tpl = null, tplCanvas = null, tplDots = null, tplSrc = null;
+  const tplPanelOpen = () => $("tplPanel").classList.contains("open");
+  function buildTplCanvases() {
+    tplCanvas = document.createElement("canvas"); tplCanvas.width = tpl.w; tplCanvas.height = tpl.h;
+    const a = tplCanvas.getContext("2d"), im = a.createImageData(tpl.w, tpl.h);
+    // version « points » : 3×3 sous-pixels par case, seul celui du milieu est coloré
+    tplDots = document.createElement("canvas"); tplDots.width = tpl.w * 3; tplDots.height = tpl.h * 3;
+    const b = tplDots.getContext("2d"), dm = b.createImageData(tpl.w * 3, tpl.h * 3);
+    for (let j = 0; j < tpl.h; j++) for (let i = 0; i < tpl.w; i++) {
+      const c = tpl.data[j * tpl.w + i];
+      if (c === 255) continue;
+      const [r, g, bl] = rgb[c], k = (j * tpl.w + i) * 4, d = ((j * 3 + 1) * tpl.w * 3 + i * 3 + 1) * 4;
+      im.data[k] = r; im.data[k + 1] = g; im.data[k + 2] = bl; im.data[k + 3] = 255;
+      dm.data[d] = r; dm.data[d + 1] = g; dm.data[d + 2] = bl; dm.data[d + 3] = 255;
+    }
+    a.putImageData(im, 0, 0); b.putImageData(dm, 0, 0);
+    $("tplThumb").src = tplCanvas.toDataURL(); $("tplThumb").style.display = "block";
+  }
+  function b64(bytes) {
+    let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+  const unb64 = str => Uint8Array.from(atob(str), ch => ch.charCodeAt(0));
+  function saveTpl() {
+    if (!tpl) { store.set("place-template", null); return; }
+    store.set("place-template", JSON.stringify({ ...tpl, data: b64(tpl.data) }));
+  }
+  function setTpl(t, { fly = false } = {}) {
+    tpl = t;
+    if (!tpl) {
+      tplCanvas = tplDots = null;
+      $("tplOpts").hidden = true; $("tplThumb").style.display = "none";
+      saveTpl(); requestDraw(); return;
+    }
+    buildTplCanvases();
+    $("tplOpts").hidden = false;
+    $("tplX").value = tpl.x; $("tplY").value = tpl.y; $("tplW").value = tpl.w;
+    $("tplStyle").value = tpl.style; $("tplOpacity").value = Math.round(tpl.opacity * 100);
+    $("tplShow").checked = tpl.show;
+    $("tplW").disabled = !tplSrc; // on ne peut changer la taille que si on a l'image d'origine
+    saveTpl(); requestDraw();
+    if (fly) flyTo(tpl.x + tpl.w / 2, tpl.y + tpl.h / 2, clampS(Math.min(innerWidth / tpl.w, (innerHeight - 220) / tpl.h) * 0.8));
+  }
+  function tplFromSource(w) {
+    w = Math.max(1, Math.min(W, Math.round(w)));
+    let h = Math.max(1, Math.round(w * tplSrc.naturalHeight / tplSrc.naturalWidth));
+    if (h > H) { h = H; w = Math.max(1, Math.round(h * tplSrc.naturalWidth / tplSrc.naturalHeight)); }
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const cx = c.getContext("2d"); cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = "high";
+    cx.drawImage(tplSrc, 0, 0, w, h);
+    const px = cx.getImageData(0, 0, w, h).data, data = new Uint8Array(w * h);
+    const skipA = $("tplSkipAlpha").checked;
+    for (let i = 0; i < w * h; i++) data[i] = skipA && px[i * 4 + 3] < 128 ? 255 : nearestColor(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]);
+    return { w, h, data };
+  }
+  function loadTplFile(file) {
+    if (!file || !file.type.startsWith("image/")) return toast("Choisis un fichier image (PNG, JPG, GIF…)");
+    const im = new Image();
+    im.onload = () => {
+      tplSrc = im;
+      const w = Math.min(64, im.naturalWidth, W);
+      const conv = tplFromSource(w);
+      const c = sel || toCell(innerWidth / 2, innerHeight / 2) || { x: W >> 1, y: H >> 1 };
+      const x = sel ? c.x : Math.max(0, Math.min(W - conv.w, c.x - (conv.w >> 1)));
+      const y = sel ? c.y : Math.max(0, Math.min(H - conv.h, c.y - (conv.h >> 1)));
+      setTpl({ x, y, ...conv, name: file.name.replace(/\.[^.]+$/, "").slice(0, 40) || "modèle",
+               opacity: 0.6, style: "dots", show: true });
+    };
+    im.onerror = () => toast("Impossible de lire cette image");
+    im.src = URL.createObjectURL(file);
+  }
+  // Panneau
+  $("tplBtn").onclick = () => { $("tplPanel").classList.toggle("open"); if (tplPanelOpen()) $("modPanel").classList.remove("open"); requestDraw(); };
+  $("tplFile").onchange = e => loadTplFile(e.target.files[0]);
+  const tdrop = $("tplDrop");
+  tdrop.addEventListener("dragover", e => { e.preventDefault(); tdrop.classList.add("on"); });
+  tdrop.addEventListener("dragleave", () => tdrop.classList.remove("on"));
+  tdrop.addEventListener("drop", e => { e.preventDefault(); tdrop.classList.remove("on"); loadTplFile(e.dataTransfer.files[0]); });
+  const tplPos = () => { if (!tpl) return; const x = Math.round(Number($("tplX").value)), y = Math.round(Number($("tplY").value));
+    if (Number.isFinite(x) && Number.isFinite(y)) { tpl.x = x; tpl.y = y; saveTpl(); requestDraw(); } };
+  $("tplX").addEventListener("input", tplPos); $("tplY").addEventListener("input", tplPos);
+  $("tplHere").onclick = () => { if (!sel) return toast("Sélectionne d'abord un pixel sur la toile"); $("tplX").value = sel.x; $("tplY").value = sel.y; tplPos(); };
+  $("tplCenter").onclick = () => { if (!tpl) return; const c = toCell(innerWidth / 2, innerHeight / 2) || { x: W >> 1, y: H >> 1 };
+    $("tplX").value = Math.max(0, c.x - (tpl.w >> 1)); $("tplY").value = Math.max(0, c.y - (tpl.h >> 1)); tplPos(); };
+  const tplResize = () => { if (!tpl || !tplSrc) return; const conv = tplFromSource(Number($("tplW").value) || tpl.w);
+    setTpl({ ...tpl, ...conv }); };
+  $("tplW").addEventListener("change", tplResize);
+  $("tplW").addEventListener("input", () => { clearTimeout(tplResize.t); tplResize.t = setTimeout(tplResize, 300); });
+  $("tplSkipAlpha").onchange = tplResize;
+  $("tplStyle").onchange = () => { if (tpl) { tpl.style = $("tplStyle").value; saveTpl(); requestDraw(); } };
+  $("tplOpacity").oninput = () => { if (tpl) { tpl.opacity = Number($("tplOpacity").value) / 100; saveTpl(); requestDraw(); } };
+  $("tplShow").onchange = () => { if (tpl) { tpl.show = $("tplShow").checked; saveTpl(); requestDraw(); } };
+  $("tplRemove").onclick = async () => { if (await ask("Retirer l'overlay ?", "Il ne sera plus affiché sur ta toile.", { ok: "Retirer" })) { tplSrc = null; setTpl(null); } };
+  // Modèle enregistré dans le navigateur
+  try {
+    const saved = JSON.parse(store.get("place-template") || "null");
+    if (saved && saved.w && saved.h) setTpl({ ...saved, data: unb64(saved.data) });
+  } catch {}
+
   // ---------- Modération : dessiner une image ----------
   let imgSrc = null, imgName = "", imgData = null, imgPrev = null, imgCount = 0;
   const palRGB = rgb;
@@ -1175,7 +1333,7 @@
   // ---------- Modération ----------
   $("modBtn").hidden = !cfg.modEnabled;
   $("modBtn").onclick = () => {
-    if (isAdmin) { $("modPanel").classList.toggle("open"); requestDraw(); }
+    if (isAdmin) { $("modPanel").classList.toggle("open"); $("tplPanel").classList.remove("open"); requestDraw(); }
     else { $("pwErr").textContent = ""; $("loginModal").classList.add("show"); $("pwInput").focus(); }
   };
   $("pwCancel").onclick = () => $("loginModal").classList.remove("show");

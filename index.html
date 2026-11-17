@@ -160,6 +160,17 @@
   #modPanel textarea { font: inherit; width: 100%; padding: 8px; border: 2px solid #ccc; border-radius: 8px; resize: vertical; min-height: 56px; }
   #modPanel label.full { display: flex; flex-direction: column; gap: 2px; width: 100%; font-size: 12px; color: #555; }
   #evStatus { font-size: 12px; color: #555; margin-bottom: 6px; }
+  #modPanel select { font: inherit; padding: 7px; border: 2px solid #ccc; border-radius: 8px; width: 100%; background: #fff; }
+  #imgDrop { border: 2px dashed #bbb; border-radius: 10px; padding: 12px; text-align: center; font-size: 13px; color: #666;
+             cursor: pointer; width: 100%; }
+  #imgDrop.on { border-color: #ff4500; background: #fff3ee; }
+  #imgThumb { max-width: 100%; max-height: 90px; image-rendering: pixelated; display: none; margin: 6px auto 0; border-radius: 4px;
+              background: repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50% / 12px 12px; }
+  #imgInfo { font-size: 12px; color: #555; }
+  .job { background: #f5f5f5; border-radius: 8px; padding: 6px 8px; font-size: 12px; margin-bottom: 4px; }
+  .job .bar { height: 6px; background: #e3e3e3; border-radius: 3px; margin: 4px 0; overflow: hidden; }
+  .job .bar i { display: block; height: 100%; background: #ff4500; }
+  .job .row { margin: 0 !important; justify-content: space-between; }
 
   @media (max-width: 1400px) and (min-width: 761px) {
     #chat { bottom: auto; top: 64px; height: 340px; }
@@ -222,6 +233,32 @@
 
 <div id="modPanel" class="bar">
   <h3>🛡️ Modération</h3>
+
+  <h4>🖼️ Dessiner une image</h4>
+  <div class="row"><label id="imgDrop">📁 Choisis une image (ou glisse-la ici)
+    <input id="imgFile" type="file" accept="image/*" hidden><img id="imgThumb" alt=""></label></div>
+  <div id="imgOpts" hidden>
+    <div class="row"><input id="imgX" class="n" placeholder="x"><input id="imgY" class="n" placeholder="y">
+      <button class="small grey" id="imgHere" title="Coin haut-gauche = pixel sélectionné">← sélection</button>
+      <button class="small grey" id="imgCenter" title="Centrer sur l'écran">⌖</button></div>
+    <div class="row"><label class="full">Largeur en pixels (la hauteur suit)<input id="imgW" type="number" min="1" max="500"></label></div>
+    <div class="row"><label><input type="checkbox" id="imgSkipAlpha" checked> ignorer le fond transparent</label></div>
+    <div class="row"><label><input type="checkbox" id="imgSkipWhite"> ignorer le blanc</label></div>
+    <div class="row"><label class="full">Vitesse
+      <select id="imgSpeed">
+        <option value="0">D'un coup</option>
+        <option value="300">Très rapide (300 pixels/s)</option>
+        <option value="60" selected>Rapide (60 pixels/s)</option>
+        <option value="15">Tranquille (15 pixels/s)</option>
+        <option value="2">Comme un joueur (2 pixels/s)</option>
+      </select></label></div>
+    <div class="row"><label class="full">Ordre
+      <select id="imgOrder"><option value="random">Au hasard (effet magique)</option><option value="rows">Ligne par ligne</option></select></label></div>
+    <div class="row"><label><input type="checkbox" id="imgPreview" checked> aperçu sur la toile</label></div>
+    <div id="imgInfo"></div>
+    <div class="row"><button class="red" id="imgGo" style="background:#ff4500;width:100%">🖌️ Dessiner</button></div>
+  </div>
+  <div id="jobList"></div>
 
   <h4>📢 Annonce</h4>
   <div class="row"><textarea id="annText" maxlength="280" placeholder="Message affiché en haut pour tout le monde"></textarea></div>
@@ -492,6 +529,19 @@
       ctx.strokeStyle = "#e50000"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
       ctx.strokeRect(ox + z.x * s, oy + z.y * s, z.w * s, z.h * s);
       ctx.setLineDash([]);
+    }
+
+    // Aperçu de l'image à dessiner (modos)
+    if (imgPrev && isAdmin && $("modPanel").classList.contains("open") && $("imgPreview").checked) {
+      const ix = Number($("imgX").value), iy = Number($("imgY").value);
+      if (Number.isFinite(ix) && Number.isFinite(iy)) {
+        ctx.globalAlpha = 0.85;
+        ctx.drawImage(imgPrev, ox + ix * s, oy + iy * s, imgPrev.width * s, imgPrev.height * s);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = "#ff4500"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+        ctx.strokeRect(ox + ix * s, oy + iy * s, imgPrev.width * s, imgPrev.height * s);
+        ctx.setLineDash([]);
+      }
     }
 
     // Effet quand un pixel vient d'être posé
@@ -1010,6 +1060,118 @@
     if (await ask("Supprimer l'événement ?", `« ${event.title} » ne sera plus affiché.`, { ok: "Supprimer" })) wsSend({ type: "mod", action: "clearEvent" });
   };
 
+  // ---------- Modération : dessiner une image ----------
+  let imgSrc = null, imgName = "", imgData = null, imgPrev = null, imgCount = 0;
+  const palRGB = rgb;
+  function nearestColor(r, g, b) {
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < palRGB.length; i++) {
+      const [pr, pg, pb] = palRGB[i], dr = r - pr, dg = g - pg, db = b - pb;
+      const d = 2 * dr * dr + 4 * dg * dg + 3 * db * db; // l'œil est plus sensible au vert
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+  }
+  function convertImage() {
+    if (!imgSrc) return;
+    let w = Math.max(1, Math.min(W, Math.round(Number($("imgW").value) || 1)));
+    let h = Math.max(1, Math.round(w * imgSrc.naturalHeight / imgSrc.naturalWidth));
+    if (h > H) { h = H; w = Math.max(1, Math.round(h * imgSrc.naturalWidth / imgSrc.naturalHeight)); $("imgW").value = w; }
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const cx = c.getContext("2d");
+    cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = "high";
+    cx.drawImage(imgSrc, 0, 0, w, h);
+    const px = cx.getImageData(0, 0, w, h).data;
+    const out = new Uint8Array(w * h), prev = cx.createImageData(w, h);
+    const skipA = $("imgSkipAlpha").checked, skipW = $("imgSkipWhite").checked;
+    imgCount = 0;
+    for (let i = 0; i < w * h; i++) {
+      const a = px[i * 4 + 3];
+      let col = skipA && a < 128 ? 255 : nearestColor(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]);
+      if (skipW && col === 0) col = 255;
+      out[i] = col;
+      if (col !== 255) {
+        imgCount++;
+        const [r, g, b] = palRGB[col];
+        prev.data[i * 4] = r; prev.data[i * 4 + 1] = g; prev.data[i * 4 + 2] = b; prev.data[i * 4 + 3] = 255;
+      }
+    }
+    cx.putImageData(prev, 0, 0);
+    imgData = out; imgPrev = c;
+    $("imgThumb").src = c.toDataURL(); $("imgThumb").style.display = "block";
+    updateImgInfo();
+    requestDraw();
+  }
+  function updateImgInfo() {
+    if (!imgPrev) return;
+    const sp = Number($("imgSpeed").value);
+    const t = sp ? Math.ceil(imgCount / sp) : 0;
+    const dur = !sp ? "d'un coup" : t < 60 ? `environ ${t} s` : t < 3600 ? `environ ${Math.round(t / 60)} min` : `environ ${(t / 3600).toFixed(1)} h`;
+    $("imgInfo").textContent = `${imgPrev.width} × ${imgPrev.height} · ${imgCount.toLocaleString("fr-FR")} pixels au maximum · ${dur}`;
+  }
+  function centerImage() {
+    if (!imgPrev) return;
+    const c = toCell(innerWidth / 2, innerHeight / 2) || { x: W >> 1, y: H >> 1 };
+    $("imgX").value = Math.max(0, Math.min(W - imgPrev.width, c.x - (imgPrev.width >> 1)));
+    $("imgY").value = Math.max(0, Math.min(H - imgPrev.height, c.y - (imgPrev.height >> 1)));
+    requestDraw();
+  }
+  function loadImageFile(file) {
+    if (!file || !file.type.startsWith("image/")) return toast("Choisis un fichier image (PNG, JPG, GIF…)");
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => {
+      imgSrc = im; imgName = file.name.replace(/\.[^.]+$/, "").slice(0, 40) || "image";
+      $("imgW").value = Math.min(64, im.naturalWidth, W);
+      $("imgOpts").hidden = false;
+      convertImage();
+      if (sel) { $("imgX").value = sel.x; $("imgY").value = sel.y; requestDraw(); } else centerImage();
+    };
+    im.onerror = () => toast("Impossible de lire cette image");
+    im.src = url;
+  }
+  $("imgFile").onchange = e => loadImageFile(e.target.files[0]);
+  const drop = $("imgDrop");
+  drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("on"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("on"));
+  drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("on"); loadImageFile(e.dataTransfer.files[0]); });
+  ["imgW", "imgSkipAlpha", "imgSkipWhite"].forEach(id => $(id).addEventListener("change", convertImage));
+  $("imgW").addEventListener("input", () => { clearTimeout(convertImage.t); convertImage.t = setTimeout(convertImage, 250); });
+  ["imgX", "imgY"].forEach(id => $(id).addEventListener("input", requestDraw));
+  $("imgPreview").onchange = requestDraw;
+  $("imgSpeed").onchange = updateImgInfo;
+  $("imgHere").onclick = () => { if (!sel) return toast("Sélectionne d'abord un pixel sur la toile"); $("imgX").value = sel.x; $("imgY").value = sel.y; requestDraw(); };
+  $("imgCenter").onclick = centerImage;
+  $("imgGo").onclick = async () => {
+    if (!imgData) return;
+    const x = Math.round(Number($("imgX").value)), y = Math.round(Number($("imgY").value));
+    if (!Number.isFinite(x) || !Number.isFinite(y) || $("imgX").value === "" || $("imgY").value === "") return toast("Indique les coordonnées x et y");
+    const sp = Number($("imgSpeed").value);
+    const ok = await ask(`Dessiner « ${imgName} » ?`,
+      `${imgPrev.width} × ${imgPrev.height} à partir de (${x}, ${y}) · jusqu'à ${imgCount.toLocaleString("fr-FR")} pixels · ${sp ? sp + " pixels/s" : "d'un coup"}. Les pixels déjà de la bonne couleur sont sautés.`,
+      { ok: "Dessiner", danger: false });
+    if (!ok) return;
+    let bin = "";
+    for (let i = 0; i < imgData.length; i += 0x8000) bin += String.fromCharCode.apply(null, imgData.subarray(i, i + 0x8000));
+    wsSend({ type: "mod", action: "drawImage", x, y, w: imgPrev.width, h: imgPrev.height, data: btoa(bin),
+             speed: sp, order: $("imgOrder").value, label: imgName });
+    $("imgPreview").checked = false; requestDraw();
+  };
+  function renderJobs(list) {
+    const box = $("jobList");
+    box.innerHTML = "";
+    for (const j of list) {
+      const d = document.createElement("div"); d.className = "job";
+      const pct = Math.floor(j.done / j.total * 100), left = Math.ceil((j.total - j.done) / j.speed);
+      d.innerHTML = `<div class="row"><b>🖌️ ${esc(j.label)}</b><span>${pct} %</span></div><div class="bar"><i style="width:${pct}%"></i></div>` +
+        `<div class="row"><span class="muted">${j.done.toLocaleString("fr-FR")} / ${j.total.toLocaleString("fr-FR")} · encore ${fmtLeft(left * 1000)}</span></div>`;
+      const b = document.createElement("button"); b.className = "small grey"; b.textContent = "Arrêter";
+      b.onclick = () => wsSend({ type: "mod", action: "cancelDraw", id: j.id });
+      d.querySelector(".row:last-child").appendChild(b);
+      box.appendChild(d);
+    }
+  }
+
   // ---------- Modération ----------
   $("modBtn").hidden = !cfg.modEnabled;
   $("modBtn").onclick = () => {
@@ -1141,6 +1303,7 @@
           }
           break;
         case "bans": renderBans(m.list); break;
+        case "jobs": renderJobs(m.list); break;
         case "announce": announcement = m.a; renderAnnounce(m.fresh); if (m.fresh && m.a) toast("📢 Nouvelle annonce"); break;
         case "event": event = m.e; renderEvent(); updateBottom(); if (isAdmin) fillEventForm(); break;
         case "notice": toast(m.text); break;

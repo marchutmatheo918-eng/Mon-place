@@ -6,11 +6,12 @@ const express = require("express");
 const http = require("http");
 const path = require("path");
 const crypto = require("crypto");
+const zlib = require("zlib");
 const { WebSocketServer } = require("ws");
 const db = require("./db");
 
 // ---- Version (à augmenter à chaque mise à jour) ----
-const VERSION = "0.11";
+const VERSION = "0.13";
 
 // ---- Réglages ----
 const PORT = process.env.PORT || 3000;
@@ -21,6 +22,15 @@ const CHAT_COOLDOWN_MS = 1500;                                // délai entre de
 const CHAT_MAX_LENGTH = 200;
 const CHAT_HISTORY = 50;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";      // vide = modération désactivée
+
+// ---- Sécurité ----
+const MAX_CONN_PER_IP = Number(process.env.MAX_CONN_PER_IP || 8);  // onglets ouverts en même temps par adresse IP
+const MAX_MSG_BYTES = 4096;                                        // taille max d'un message WebSocket (joueurs)
+const MAX_ADMIN_MSG_BYTES = 600000;                                // les modos peuvent envoyer une image (jusqu'à 500×500)
+const MAX_IMAGE_PIXELS = 250000;
+const MSG_PER_SEC = 25;                                            // messages par seconde avant déconnexion
+// Mettre TRUST_CLOUDFLARE=1 sur Railway UNIQUEMENT quand Cloudflare est branché devant le site
+const TRUST_CLOUDFLARE = process.env.TRUST_CLOUDFLARE === "1";
 
 // 32 couleurs (celles du vrai r/place 2022). L'index 0 doit rester le blanc (couleur des cases vides).
 const PALETTE = [
@@ -81,23 +91,47 @@ const isBanned = (ip, name) => bannedIps.has(ip) || (name && bannedNames.has(nam
 
 // ---- HTTP ----
 const app = express();
+app.disable("x-powered-by");
+
+// Limite simple du nombre de requêtes par adresse IP (fenêtre de 10 secondes)
+const hits = new Map(); // "règle|ip" -> { n, reset }
+function rateLimit(name, max, windowMs = 10000) {
+  return (req, res, next) => {
+    const key = name + "|" + clientIp(req), now = Date.now();
+    let h = hits.get(key);
+    if (!h || now > h.reset) { h = { n: 0, reset: now + windowMs }; hits.set(key, h); }
+    if (++h.n > max) {
+      res.set("Retry-After", Math.ceil((h.reset - now) / 1000));
+      return res.status(429).json({ error: "Trop de requêtes, réessaie dans quelques secondes" });
+    }
+    next();
+  };
+}
 app.use(express.static(path.join(__dirname, "public")));
 // index.html peut être dans "public/" ou directement à côté de server.js
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 
 app.get("/timelapse", (req, res) => res.sendFile(path.join(__dirname, "timelapse.html")));
 
-// Historique complet pour le timelapse (mis en cache 15 secondes)
-let historyCache = { at: 0, buf: null };
-app.get("/api/history", (req, res) => {
+// Historique complet pour le timelapse (mis en cache 30 secondes, compressé)
+let historyCache = { at: 0, raw: null, gz: null };
+app.get("/api/history", rateLimit("history", 4, 60000), (req, res) => {
   const now = Date.now();
-  if (!historyCache.buf || now - historyCache.at > 15000) historyCache = { at: now, buf: db.historyBinary() };
+  if (!historyCache.raw || now - historyCache.at > 30000) {
+    const raw = db.historyBinary();
+    historyCache = { at: now, raw, gz: zlib.gzipSync(raw, { level: 6 }) };
+  }
   res.set("Content-Type", "application/octet-stream");
-  res.send(historyCache.buf);
+  res.set("Cache-Control", "public, max-age=30");
+  if (/\bgzip\b/.test(req.headers["accept-encoding"] || "")) {
+    res.set("Content-Encoding", "gzip");
+    return res.send(historyCache.gz);
+  }
+  res.send(historyCache.raw);
 });
 
 // Classement : ?period=24h ou all, &me=pseudo
-app.get("/api/leaderboard", (req, res) => {
+app.get("/api/leaderboard", rateLimit("leaderboard", 15), (req, res) => {
   const since = req.query.period === "24h" ? Date.now() - 24 * 3600 * 1000 : 0;
   const me = typeof req.query.me === "string" ? req.query.me.slice(0, 20) : null;
   res.json(db.leaderboard(since, me));
@@ -107,7 +141,7 @@ app.get("/config", (req, res) =>
   res.json({ version: VERSION, width: WIDTH, height: HEIGHT, cooldown: COOLDOWN_MS, palette: PALETTE, chatMax: CHAT_MAX_LENGTH, modEnabled: !!ADMIN_PASSWORD })
 );
 
-app.get("/pixel", (req, res) => {
+app.get("/pixel", rateLimit("pixel", 80), (req, res) => {
   const x = Number(req.query.x), y = Number(req.query.y);
   if (!Number.isInteger(x) || !Number.isInteger(y)) return res.status(400).json({ error: "coordonnées invalides" });
   const p = db.getPixel(x, y);
@@ -115,17 +149,19 @@ app.get("/pixel", (req, res) => {
   res.json({ x, y, color: p.color, user: p.user, placedAt: p.placed_at, userTotal: db.pixelsByUser(p.user) });
 });
 
-app.get("/stats", (req, res) => res.json(db.stats()));
+app.get("/stats", rateLimit("stats", 15), (req, res) => res.json(db.stats()));
 
 const server = http.createServer(app);
 
 // ---- WebSocket ----
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: MAX_ADMIN_MSG_BYTES });
+const connCount = new Map(); // ip -> nombre de connexions ouvertes
 const lastPlaced = new Map();   // ip -> timestamp
 const lastChat = new Map();     // ip -> timestamp
 const authFails = new Map();    // ip -> { n, until }
 
 function clientIp(req) {
+  if (TRUST_CLOUDFLARE && req.headers["cf-connecting-ip"]) return String(req.headers["cf-connecting-ip"]).trim();
   const real = req.headers["x-real-ip"];
   if (real) return String(real).trim();
   const fwd = req.headers["x-forwarded-for"];
@@ -158,6 +194,33 @@ function notifyBanned() {
   for (const c of wss.clients) {
     if (isBanned(c.ip, c.user)) send(c, { type: "banned" });
   }
+}
+
+// ---- Dessin d'image par les modos (tâches qui tournent sur le serveur) ----
+const jobs = new Map(); // id -> tâche
+let nextJobId = 1;
+function jobsSummary() {
+  return [...jobs.values()].map(j => ({ id: j.id, label: j.label, done: j.done, total: j.total, speed: j.speed, by: j.by }));
+}
+function sendJobs() {
+  const msg = JSON.stringify({ type: "jobs", list: jobsSummary() });
+  for (const c of wss.clients) if (c.isAdmin && c.readyState === 1) c.send(msg);
+}
+setInterval(() => { if (jobs.size) sendJobs(); }, 1000).unref();
+
+function writeCells(cells, ip) {
+  const now = Date.now();
+  db.placeBatch(cells, db.MOD_USER, ip, now);
+  for (const [x, y, c] of cells) grid[y * WIDTH + x] = c;
+  if (cells.length > 300) broadcast(grid);
+  else for (const [x, y, c] of cells) broadcastJson({ type: "pixel", x, y, c, user: db.MOD_USER, t: now });
+}
+function finishJob(job, text) {
+  clearInterval(job.timer);
+  jobs.delete(job.id);
+  db.log("drawImageEnd", { label: job.label, done: job.done, total: job.total }, job.ip);
+  for (const c of wss.clients) if (c.isAdmin) send(c, { type: "notice", text });
+  sendJobs();
 }
 
 // ---- Actions de modération ----
@@ -227,6 +290,49 @@ const modActions = {
 
   listBans(ws) { sendBans(ws); },
 
+  // Dessine une image : data = w×h octets en base64 (index de couleur, 255 = transparent)
+  drawImage(ws, m) {
+    const x0 = m.x | 0, y0 = m.y | 0, w = m.w | 0, h = m.h | 0;
+    if (w < 1 || h < 1 || w > WIDTH || h > HEIGHT || w * h > MAX_IMAGE_PIXELS) return send(ws, { type: "notice", text: "Image trop grande" });
+    let data;
+    try { data = Buffer.from(String(m.data || ""), "base64"); } catch { data = null; }
+    if (!data || data.length !== w * h) return send(ws, { type: "notice", text: "Image invalide" });
+    const cells = [];
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      const c = data[j * w + i], x = x0 + i, y = y0 + j;
+      if (c === 255 || c >= PALETTE.length || x < 0 || y < 0 || x >= WIDTH || y >= HEIGHT) continue;
+      if (grid[y * WIDTH + x] === c) continue; // déjà la bonne couleur
+      cells.push([x, y, c]);
+    }
+    const label = String(m.label || "image").slice(0, 40);
+    if (!cells.length) return send(ws, { type: "notice", text: "Rien à dessiner : l'image est déjà là" });
+    if (m.order === "random") {
+      for (let i = cells.length - 1; i > 0; i--) { const k = Math.floor(Math.random() * (i + 1)); [cells[i], cells[k]] = [cells[k], cells[i]]; }
+    }
+    const speed = Math.max(0, Math.min(5000, Number(m.speed) || 0)); // pixels par seconde, 0 = d'un coup
+    db.log("drawImage", { label, x: x0, y: y0, w, h, pixels: cells.length, speed }, ws.ip);
+    if (!speed) {
+      writeCells(cells, ws.ip);
+      return send(ws, { type: "notice", text: `« ${label} » dessinée : ${cells.length} pixels` });
+    }
+    const job = { id: nextJobId++, label, cells, done: 0, total: cells.length, speed, by: ws.user || "modo", ip: ws.ip };
+    const perTick = Math.max(1, Math.round(speed / 10));
+    job.timer = setInterval(() => {
+      const batch = job.cells.slice(job.done, job.done + perTick);
+      writeCells(batch, job.ip);
+      job.done += batch.length;
+      if (job.done >= job.total) finishJob(job, `« ${job.label} » terminée (${job.total} pixels)`);
+    }, 100);
+    jobs.set(job.id, job);
+    send(ws, { type: "notice", text: `Dessin de « ${label} » lancé : ${cells.length} pixels` });
+    sendJobs();
+  },
+
+  cancelDraw(ws, m) {
+    const job = jobs.get(m.id | 0);
+    if (job) finishJob(job, `« ${job.label} » arrêtée à ${job.done}/${job.total} pixels`);
+  },
+
   announce(ws, m) {
     const text = String(m.text || "").replace(/\s+/g, " ").trim().slice(0, 280);
     if (!text) return send(ws, { type: "notice", text: "L'annonce est vide" });
@@ -272,6 +378,13 @@ const modActions = {
 // ---- Connexions ----
 wss.on("connection", (ws, req) => {
   ws.ip = clientIp(req);
+  const open = (connCount.get(ws.ip) || 0) + 1;
+  if (open > MAX_CONN_PER_IP) {
+    send(ws, { type: "error", message: "Trop d'onglets ouverts sur le site depuis ta connexion" });
+    return ws.close(1008, "trop de connexions");
+  }
+  connCount.set(ws.ip, open);
+  ws.rate = { n: 0, reset: Date.now() + 1000 };
   ws.isAdmin = false;
   ws.user = null;
 
@@ -285,6 +398,12 @@ wss.on("connection", (ws, req) => {
   broadcastOnline();
 
   ws.on("message", (raw) => {
+    // Anti-flood : trop de messages en une seconde = déconnexion
+    const t = Date.now();
+    if (t > ws.rate.reset) ws.rate = { n: 0, reset: t + 1000 };
+    if (++ws.rate.n > MSG_PER_SEC) return ws.terminate();
+    // Seuls les modos connectés ont le droit d'envoyer de gros messages
+    if (raw.length > MAX_MSG_BYTES && !ws.isAdmin) return ws.terminate();
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     const now = Date.now();
@@ -298,6 +417,7 @@ wss.on("connection", (ws, req) => {
         ws.isAdmin = true;
         send(ws, { type: "auth", ok: true });
         sendBans(ws);
+        send(ws, { type: "jobs", list: jobsSummary() });
         db.log("login", {}, ws.ip);
       } else {
         f.n++; if (f.n >= 5) { f.n = 0; f.until = now + 60000; }
@@ -355,8 +475,21 @@ wss.on("connection", (ws, req) => {
     }
   });
 
-  ws.on("close", broadcastOnline);
+  ws.on("close", () => {
+    const n = (connCount.get(ws.ip) || 1) - 1;
+    if (n <= 0) connCount.delete(ws.ip); else connCount.set(ws.ip, n);
+    broadcastOnline();
+  });
+  ws.on("error", () => {});
 });
+
+// Ménage des compteurs en mémoire (toutes les 10 minutes)
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, h] of hits) if (now > h.reset) hits.delete(k);
+  for (const m of [lastPlaced, lastChat]) for (const [k, t] of m) if (now - t > 3600000) m.delete(k);
+  for (const [k, f] of authFails) if (now > f.until && f.n === 0) authFails.delete(k);
+}, 600000).unref();
 
 server.listen(PORT, () => {
   console.log(`Mini r/place v${VERSION} sur http://localhost:${PORT}`);

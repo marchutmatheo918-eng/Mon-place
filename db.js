@@ -103,6 +103,14 @@ const placePixel = db.transaction((x, y, color, user, ip, ts) => {
   upsertCanvas.run(x, y, color, user, ts);
 });
 
+// Pose de plusieurs pixels d'un coup (outil image des modos)
+const placeBatch = db.transaction((cells, user, ip, ts) => {
+  for (const [x, y, c] of cells) {
+    insertHistory.run(x, y, c, user, ip, ts);
+    upsertCanvas.run(x, y, c, user, ts);
+  }
+});
+
 const getPixel = db.prepare("SELECT color, user, placed_at FROM canvas WHERE x = ? AND y = ?");
 const allCanvas = db.prepare("SELECT x, y, color FROM canvas");
 const countUser = db.prepare("SELECT COUNT(*) AS n FROM pixels WHERE user = ?");
@@ -206,6 +214,7 @@ module.exports = {
   getSetting, setSetting, migratePalette,
 
   placePixel,
+  placeBatch,
   getPixel: (x, y) => getPixel.get(x, y),
   allCanvas: () => allCanvas.all(),
   pixelsByUser: (user) => countUser.get(user).n,

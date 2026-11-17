@@ -34,6 +34,19 @@ Choisis la durée, puis « 📹 Créer la vidéo » pour télécharger une vidé
 
 Bouton 🏆 en haut : les 20 joueurs qui ont posé le plus de pixels, sur 24 heures ou depuis le début.
 
+## Dessiner une image (modération)
+
+Dans le panneau 🛡️ : « 🖼️ Dessiner une image ».
+1. Choisis une image (ou glisse-la dans le cadre). Elle est convertie dans les 32 couleurs.
+2. Indique le coin haut-gauche (x, y) — ou sélectionne un pixel puis « ← sélection », ou ⌖ pour centrer —
+   et la largeur en pixels (la hauteur suit). L'aperçu s'affiche en transparence sur la toile.
+3. Choisis la vitesse (d'un coup, ou progressivement de 2 à 300 pixels/s) et l'ordre (au hasard ou ligne par ligne).
+4. « 🖌️ Dessiner » : le serveur dessine tout seul, même si tu fermes la page. Tu peux suivre ou arrêter le dessin.
+
+Réservé aux modos : le serveur refuse la demande à quiconque n'est pas connecté en modération.
+Les pixels posés ainsi apparaissent au nom « [modération] » et ne comptent pas dans le classement.
+Si le serveur redémarre pendant un dessin progressif, le dessin s'arrête (relance-le : les pixels déjà posés sont sautés).
+
 ## Annonces et événements (modération)
 
 - **📢 Annonce** : un message affiché en haut pour tout le monde (chacun peut le masquer).
@@ -59,6 +72,17 @@ Tu peux alors :
 
 En modération, tu n'as pas de délai entre deux pixels et tes messages ont un badge MODO.
 Toutes les actions sont enregistrées dans la table `mod_log`.
+
+## Sécurité
+
+- Limite de connexions par adresse IP (`MAX_CONN_PER_IP`, 8 par défaut), messages de 4 Ko maximum,
+  déconnexion automatique au-delà de 25 messages par seconde.
+- Limite de requêtes sur `/pixel`, `/stats`, le classement et le timelapse (erreur 429 si on abuse).
+- Historique du timelapse compressé et mis en cache.
+- **Cloudflare** : une fois Cloudflare branché devant le site, ajoute la variable `TRUST_CLOUDFLARE=1` sur Railway
+  pour que chaque joueur garde sa propre adresse IP (sinon tout le monde partagerait le même délai).
+  Ne l'active pas sans Cloudflare.
+- Pense à mettre une limite de dépenses sur Railway (workspace → Usage).
 
 ## La base de données
 
@@ -94,6 +118,8 @@ Le fichier `place.db` doit être sur un disque permanent : sur Railway, ajoute u
 
 Le numéro de version s'affiche en bas à droite du site.
 
+- **v0.13** : outil modo « Dessiner une image » (aperçu, taille, vitesse, suivi et arrêt)
+- **v0.12** : sécurité renforcée (limites de connexions, de débit et de requêtes, compression, prise en charge de Cloudflare)
 - **v0.11** : la caméra suit le viseur quand on se déplace avec les flèches
 - **v0.10** : barre du bas plus aérée, le chat ne cache plus la palette
 - **v0.09** : timelapse avec export vidéo, classement, annonces, événements, 32 couleurs (les anciens pixels sont convertis automatiquement)

@@ -94,6 +94,7 @@ Le fichier `place.db` doit être sur un disque permanent : sur Railway, ajoute u
 
 Le numéro de version s'affiche en bas à droite du site.
 
+- **v0.11** : la caméra suit le viseur quand on se déplace avec les flèches
 - **v0.10** : barre du bas plus aérée, le chat ne cache plus la palette
 - **v0.09** : timelapse avec export vidéo, classement, annonces, événements, 32 couleurs (les anciens pixels sont convertis automatiquement)
 - **v0.08** : correction, la pose au clavier suit le viseur après un déplacement avec les flèches

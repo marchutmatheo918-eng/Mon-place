@@ -580,8 +580,8 @@
     if (!sel) return;
     const x = Math.min(W - 1, Math.max(0, sel.x + dx)), y = Math.min(H - 1, Math.max(0, sel.y + dy));
     select({ x, y }, { focus: false });
-    const p = toScreen(x + 0.5, y + 0.5);
-    if (p.x < 80 || p.y < 80 || p.x > innerWidth - 80 || p.y > innerHeight - 200) flyTo(x + 0.5, y + 0.5, cam.s, 200);
+    // la caméra suit le viseur à chaque déplacement (zoom au moins à 12 pour bien voir)
+    flyTo(x + 0.5, y + 0.5, Math.max(cam.s, 12), 140);
   }
 
   // ---------- Touches du clavier -> couleurs ----------

@@ -11,12 +11,13 @@ const { WebSocketServer } = require("ws");
 const db = require("./db");
 
 // ---- Version (à augmenter à chaque mise à jour) ----
-const VERSION = "0.16";
+const VERSION = "0.17";
 
 // ---- Réglages ----
 const PORT = process.env.PORT || 3000;
-const WIDTH = 500;
-const HEIGHT = 500;
+// Taille de la toile : modifiable par les modos (gardée dans la base)
+const DEFAULT_SIZE = 500, MIN_SIZE = 20, MAX_SIZE = Number(process.env.MAX_CANVAS_SIZE || 2000);
+let WIDTH = DEFAULT_SIZE, HEIGHT = DEFAULT_SIZE;
 const COOLDOWN_MS = Number(process.env.COOLDOWN_MS || 1000); // délai entre deux pixels (1 s)
 const CHAT_COOLDOWN_MS = 1500;                                // délai entre deux messages
 const CHAT_MAX_LENGTH = 200;
@@ -46,8 +47,13 @@ const OLD_PALETTE = [
 ];
 if (db.migratePalette(OLD_PALETTE, PALETTE, 32)) console.log("Pixels convertis vers la palette de 32 couleurs");
 
+{
+  const saved = db.getSetting("canvas_size");
+  if (saved && saved.w && saved.h) { WIDTH = saved.w; HEIGHT = saved.h; }
+}
+
 // ---- Grille en mémoire, rechargée depuis la base ----
-const grid = Buffer.alloc(WIDTH * HEIGHT, 0);
+let grid = Buffer.alloc(WIDTH * HEIGHT, 0);
 function reloadGrid() {
   grid.fill(0);
   for (const p of db.allCanvas()) {
@@ -159,7 +165,7 @@ app.get("/api/leaderboard", rateLimit("leaderboard", 15), (req, res) => {
 });
 
 app.get("/config", (req, res) =>
-  res.json({ version: VERSION, width: WIDTH, height: HEIGHT, cooldown: COOLDOWN_MS, palette: PALETTE, chatMax: CHAT_MAX_LENGTH, modEnabled: !!ADMIN_PASSWORD })
+  res.json({ version: VERSION, width: WIDTH, height: HEIGHT, minSize: MIN_SIZE, maxSize: MAX_SIZE, cooldown: COOLDOWN_MS, palette: PALETTE, chatMax: CHAT_MAX_LENGTH, modEnabled: !!ADMIN_PASSWORD })
 );
 
 app.get("/pixel", rateLimit("pixel", 80), (req, res) => {
@@ -231,6 +237,7 @@ setInterval(() => { if (jobs.size) sendJobs(); }, 1000).unref();
 
 function writeCells(cells, ip) {
   const now = Date.now();
+  cells = cells.filter(([x, y]) => x < WIDTH && y < HEIGHT);
   db.placeBatch(cells, db.MOD_USER, ip, now);
   for (const [x, y, c] of cells) grid[y * WIDTH + x] = c;
   if (cells.length > 300) broadcast(grid);
@@ -308,6 +315,25 @@ const modActions = {
     broadcast(grid);
     db.log("rollback", { user, pid, pixels: n }, ws.ip);
     send(ws, { type: "notice", text: `${n} pixel${n > 1 ? "s" : ""} de ${who} annulé${n > 1 ? "s" : ""}` });
+  },
+
+  // Agrandir / réduire la toile (le coin en haut à gauche ne bouge pas)
+  resizeCanvas(ws, m) {
+    const w = Math.round(Number(m.w)), h = Math.round(Number(m.h));
+    if (!(w >= MIN_SIZE && h >= MIN_SIZE && w <= MAX_SIZE && h <= MAX_SIZE)) {
+      return send(ws, { type: "notice", text: `La taille doit être entre ${MIN_SIZE} et ${MAX_SIZE}` });
+    }
+    if (w === WIDTH && h === HEIGHT) return send(ws, { type: "notice", text: "La toile a déjà cette taille" });
+    const removed = (w < WIDTH || h < HEIGHT) ? db.deleteOutside(w, h) : 0;
+    const old = grid, ow = WIDTH, oh = HEIGHT;
+    const next = Buffer.alloc(w * h, 0);
+    for (let y = 0; y < Math.min(h, oh); y++) old.copy(next, y * w, y * ow, y * ow + Math.min(w, ow));
+    grid = next; WIDTH = w; HEIGHT = h;
+    db.setSetting("canvas_size", { w, h });
+    db.log("resizeCanvas", { from: [ow, oh], to: [w, h], removed }, ws.ip);
+    broadcastJson({ type: "size", w, h, changed: true });
+    broadcast(grid);
+    send(ws, { type: "notice", text: `Toile : ${ow} × ${oh} → ${w} × ${h}${removed ? ` (${removed} pixels hors de la toile retirés)` : ""}` });
   },
 
   resetLeaderboard(ws) {
@@ -437,6 +463,7 @@ wss.on("connection", (ws, req) => {
   if (!ws.pid) ws.pid = newPid();
   send(ws, { type: "you", pid: ws.pid, token: `${ws.pid}.${signPid(ws.pid)}` });
 
+  send(ws, { type: "size", w: WIDTH, h: HEIGHT });
   ws.send(grid); // grille complète en binaire
   const wait = Math.max(0, (lastPlaced.get(ws.ip) || 0) + currentCooldown() - Date.now());
   send(ws, { type: "cooldown", wait });

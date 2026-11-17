@@ -53,6 +53,15 @@ En modération :
 
 Le secret qui signe les identifiants est créé automatiquement et gardé dans la base (on peut aussi le fixer avec la variable `ID_SECRET`).
 
+## Taille de la toile (modération)
+
+Panneau 🛡️ → « 📐 Taille de la toile » : entre la largeur et la hauteur (ou utilise « +100 → », « +100 ↓ »,
+« +100 les deux »), puis « Appliquer ». La toile s'agrandit vers la droite et vers le bas ; tous les joueurs connectés
+le voient tout de suite, sans recharger la page.
+- Entre 20 et 2000 pixels de côté (`MAX_CANVAS_SIZE` pour changer le maximum).
+- Si tu réduis la toile, les pixels qui sortent sont retirés de la toile (ils restent dans le timelapse).
+- Plus la toile est grande, plus il y a de données à envoyer à chaque joueur qui se connecte.
+
 ## Remettre le classement à zéro (modération)
 
 Panneau 🛡️ → « 🏆 Classement » → « Remettre le classement à zéro ». Tout le monde repart de 0 dans le classement ;
@@ -142,6 +151,7 @@ Le fichier `place.db` doit être sur un disque permanent : sur Railway, ajoute u
 
 Le numéro de version s'affiche en bas à droite du site.
 
+- **v0.17** : outil modo pour agrandir ou réduire la toile en direct
 - **v0.16** : identifiant unique par joueur (visible sur les pixels, bannissement par #ID), remise à zéro du classement
 - **v0.15** : bruitage quand on pose un pixel (bouton 🔊/🔇), viseur plus serré
 - **v0.14** : overlay pour les joueurs (image affichée par-dessus la toile pour recopier un dessin)

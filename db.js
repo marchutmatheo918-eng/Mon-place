@@ -122,6 +122,7 @@ const placeBatch = db.transaction((cells, user, ip, ts) => {
 
 const getPixel = db.prepare("SELECT color, user, placed_at, pid FROM canvas WHERE x = ? AND y = ?");
 const allCanvas = db.prepare("SELECT x, y, color FROM canvas");
+const deleteOutsideStmt = db.prepare("DELETE FROM canvas WHERE x >= ? OR y >= ?");
 const countUser = db.prepare("SELECT COUNT(*) AS n FROM pixels WHERE user = ?");
 const stats = db.prepare(`SELECT COUNT(*) AS total, COUNT(DISTINCT user) AS players FROM pixels WHERE user NOT LIKE '[%'`);
 
@@ -254,6 +255,7 @@ module.exports = {
   placeBatch,
   getPixel: (x, y) => getPixel.get(x, y),
   allCanvas: () => allCanvas.all(),
+  deleteOutside: (w, h) => deleteOutsideStmt.run(w, h).changes,
   pixelsByUser: (user) => countUser.get(user).n,
   stats: () => stats.get(),
   rollbackUser,

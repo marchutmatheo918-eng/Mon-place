@@ -316,6 +316,16 @@
   <div class="row"><label><input type="checkbox" id="evLock"> Toile fermée avant et après</label></div>
   <div class="row"><button class="red" id="evBtn" style="background:#4b2bd6">Programmer</button><button class="grey" id="evClear">Supprimer</button></div>
 
+  <h4>📐 Taille de la toile</h4>
+  <div id="sizeStatus" class="muted" style="font-size:12px;margin-bottom:6px"></div>
+  <div class="row"><input id="sizeW" class="n" type="number" placeholder="largeur"><span>×</span><input id="sizeH" class="n" type="number" placeholder="hauteur">
+    <button class="red" id="sizeGo" style="background:#4b2bd6">Appliquer</button></div>
+  <div class="row">
+    <button class="small grey" data-grow="100,0">+100 →</button>
+    <button class="small grey" data-grow="0,100">+100 ↓</button>
+    <button class="small grey" data-grow="100,100">+100 les deux</button>
+  </div>
+
   <h4>🏆 Classement</h4>
   <div id="lbStatus" class="muted" style="font-size:12px;margin-bottom:6px"></div>
   <div class="row"><button class="red" id="lbReset">Remettre le classement à zéro</button></div>
@@ -409,7 +419,8 @@
 <script>
 (async () => {
   const cfg = await (await fetch("/config")).json();
-  const W = cfg.width, H = cfg.height, palette = cfg.palette;
+  let W = cfg.width, H = cfg.height;
+  const palette = cfg.palette;
   const rgb = palette.map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)));
   const $ = id => document.getElementById(id);
   $("version").textContent = "v" + (cfg.version || "?");
@@ -464,9 +475,19 @@
   // ---------- Image de la toile ----------
   const off = document.createElement("canvas");
   off.width = W; off.height = H;
-  const offCtx = off.getContext("2d");
-  const img = offCtx.createImageData(W, H);
-  const cells = new Uint8Array(W * H); // couleur de chaque case (pour le modèle)
+  let offCtx = off.getContext("2d");
+  let img = offCtx.createImageData(W, H);
+  let cells = new Uint8Array(W * H); // couleur de chaque case (pour l'overlay)
+  // La toile change de taille (outil des modos) : on recrée l'image, la caméra reste où elle est
+  function resizeBoard(w, h) {
+    W = w; H = h;
+    off.width = W; off.height = H;
+    offCtx = off.getContext("2d");
+    img = offCtx.createImageData(W, H);
+    cells = new Uint8Array(W * H);
+    if (sel && (sel.x >= W || sel.y >= H)) select(null);
+    clampCam(); requestDraw();
+  }
   function setPixel(x, y, c) {
     cells[y * W + x] = c;
     const i = (y * W + x) * 4, [r, g, b] = rgb[c] || [0, 0, 0];
@@ -1103,6 +1124,28 @@
   $("announceClose").onclick = () => { if (announcement) store.set("place-ann-hidden", announcement.id); renderAnnounce(); };
 
   // ---------- Classement ----------
+  // ---------- Modération : taille de la toile ----------
+  function renderSizeStatus() {
+    $("sizeStatus").textContent = `Taille actuelle : ${W} × ${H} (de ${cfg.minSize || 20} à ${cfg.maxSize || 2000}). On agrandit vers la droite et vers le bas.`;
+    $("sizeW").value = W; $("sizeH").value = H;
+  }
+  renderSizeStatus();
+  document.querySelectorAll("[data-grow]").forEach(b => b.onclick = () => {
+    const [dw, dh] = b.dataset.grow.split(",").map(Number);
+    $("sizeW").value = W + dw; $("sizeH").value = H + dh;
+  });
+  $("sizeGo").onclick = async () => {
+    const w = Math.round(Number($("sizeW").value)), h = Math.round(Number($("sizeH").value));
+    if (!w || !h) return toast("Indique la largeur et la hauteur");
+    if (w === W && h === H) return toast("La toile a déjà cette taille");
+    const shrink = w < W || h < H;
+    const ok = await ask(`Passer la toile en ${w} × ${h} ?`,
+      shrink ? "⚠️ La toile rétrécit : les pixels qui sortent de la nouvelle taille seront retirés de la toile (ils restent dans le timelapse)."
+             : "La toile s'agrandit vers la droite et vers le bas. Tous les joueurs le verront tout de suite.",
+      { ok: shrink ? "Réduire" : "Agrandir", danger: shrink });
+    if (ok) wsSend({ type: "mod", action: "resizeCanvas", w, h });
+  };
+
   let lbPeriod = "24h", lbSince = 0;
   function renderLbSince() {
     const t = lbSince ? new Date(lbSince).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
@@ -1469,6 +1512,7 @@
     ws.onmessage = ev => {
       if (ev.data instanceof ArrayBuffer) {
         const g = new Uint8Array(ev.data);
+        if (g.length !== W * H) return; // grille d'une autre taille : on attend la bonne
         for (let i = 0; i < g.length; i++) setPixel(i % W, (i / W) | 0, g[i]);
         offCtx.putImageData(img, 0, 0);
         requestDraw();
@@ -1518,6 +1562,13 @@
         case "announce": announcement = m.a; renderAnnounce(m.fresh); if (m.fresh && m.a) toast("📢 Nouvelle annonce"); break;
         case "event": event = m.e; renderEvent(); updateBottom(); if (isAdmin) fillEventForm(); break;
         case "notice": toast(m.text); break;
+        case "size":
+          if (m.w !== W || m.h !== H) {
+            resizeBoard(m.w, m.h);
+            if (m.changed) { toast(`📐 La toile fait maintenant ${m.w} × ${m.h} !`); flyTo(W / 2, H / 2, clampS(Math.min(innerWidth / W, (innerHeight - 160) / H) * 0.95), 700); }
+          }
+          renderSizeStatus();
+          break;
         case "you": store.set("place-token", m.token); $("mePid").textContent = "#" + m.pid; break;
         case "leaderboardReset":
           lbSince = m.since; renderLbSince();

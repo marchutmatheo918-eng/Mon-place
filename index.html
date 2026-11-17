@@ -2,50 +2,71 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Mini r/place</title>
 <style>
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; background: #ddd; }
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; background: #ddd;
+               -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
   #board { display: block; width: 100vw; height: 100vh; cursor: crosshair; touch-action: none; }
+  #board.grab { cursor: grabbing; }
   .bar { position: fixed; background: #fff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.2); }
   .muted { color: #777; }
   button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 9px 16px; cursor: pointer; }
   button.small { padding: 4px 8px; font-size: 12px; }
   button.red { background: #e50000; color: #fff; }
   button.grey { background: #eee; }
-  input { font: inherit; padding: 8px; border: 2px solid #ccc; border-radius: 8px; min-width: 0; }
+  input { font: inherit; padding: 8px; border: 2px solid #ccc; border-radius: 8px; min-width: 0; -webkit-user-select: text; user-select: text; }
 
   /* Barre du haut */
   #top { top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 14px; font-size: 14px;
          align-items: center; white-space: nowrap; padding: 8px 14px; }
-  #coords { font-variant-numeric: tabular-nums; color: #555; }
+  #coords { font-variant-numeric: tabular-nums; color: #333; font-weight: 600; }
   #me { color: #ff4500; font-weight: 600; cursor: pointer; }
   #modBtn { background: none; padding: 2px 4px; font-size: 16px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: #c00; display: inline-block; margin-right: 4px; }
   .dot.on { background: #0a0; }
 
+  /* Bulle au-dessus du pixel sélectionné */
+  #bubble { position: fixed; transform: translate(-50%, -100%); background: #fff; border-radius: 10px;
+            box-shadow: 0 4px 14px rgba(0,0,0,.25); padding: 7px 11px; font-size: 13px; white-space: nowrap;
+            display: none; pointer-events: auto; z-index: 3; text-align: center; }
+  #bubble::after { content: ""; position: absolute; left: 50%; bottom: -6px; margin-left: -6px;
+                   border: 6px solid transparent; border-bottom: 0; border-top-color: #fff; }
+  #bubble b { font-weight: 700; }
+  #bubbleMod { display: flex; gap: 5px; justify-content: center; margin-top: 6px; }
+
   /* Barre du bas */
-  #bottom { bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column;
-            align-items: center; gap: 10px; min-width: 340px; padding: 10px 14px; }
-  #palette { display: grid; grid-template-columns: repeat(8, 32px); gap: 6px; }
-  .swatch { width: 32px; height: 32px; border-radius: 6px; border: 2px solid #0002; cursor: pointer; }
-  .swatch.sel { outline: 3px solid #000; outline-offset: 2px; }
-  #info { font-size: 14px; text-align: center; min-height: 20px; }
-  #pixelMod { display: flex; gap: 6px; justify-content: center; }
-  #actions { display: flex; gap: 8px; align-items: center; }
-  #placeBtn { background: #ff4500; color: #fff; min-width: 180px; }
-  #placeBtn:disabled { background: #bbb; cursor: default; }
+  #bottom { bottom: 14px; left: 50%; transform: translateX(-50%); padding: 10px; display: flex;
+            flex-direction: column; align-items: center; gap: 10px; transition: padding .15s; }
+  #placeBtn { background: #ff4500; color: #fff; font-size: 17px; padding: 13px 26px; border-radius: 30px;
+              min-width: 230px; box-shadow: 0 3px 0 #b33000; }
+  #placeBtn:active { transform: translateY(2px); box-shadow: 0 1px 0 #b33000; }
+  #placeBtn.wait { background: #fff; color: #222; box-shadow: none; border: 2px solid #ddd; cursor: default; font-variant-numeric: tabular-nums; }
+  #placeBtn.banned { background: #bbb; box-shadow: none; cursor: default; }
+  #picker { display: none; flex-direction: column; align-items: center; gap: 10px; }
+  #bottom.picking #picker { display: flex; }
+  #bottom.picking #placeBtn { display: none; }
+  #palette { display: grid; grid-template-columns: repeat(8, 36px); gap: 7px; }
+  .swatch { width: 36px; height: 36px; border-radius: 7px; border: 2px solid #0002; cursor: pointer; transition: transform .1s; }
+  .swatch:hover { transform: scale(1.08); }
+  .swatch.sel { outline: 3px solid #000; outline-offset: 2px; transform: scale(1.1); }
+  #pickActions { display: flex; gap: 10px; width: 100%; }
+  #pickActions button { flex: 1; font-size: 20px; padding: 8px; border-radius: 10px; }
+  #noBtn { background: #eee; color: #333; }
+  #okBtn { background: #ff4500; color: #fff; }
+  #okBtn:disabled { background: #ccc; cursor: default; }
 
   /* Chat */
   #chat { left: 12px; bottom: 12px; width: 300px; height: 380px; display: flex; flex-direction: column; overflow: hidden; }
   #chat.closed { height: auto; }
   #chat.closed #chatBody { display: none; }
   #chatHead { padding: 10px 12px; font-weight: 700; display: flex; justify-content: space-between; cursor: pointer;
-              border-bottom: 1px solid #eee; user-select: none; }
+              border-bottom: 1px solid #eee; }
   #chatUnread { background: #ff4500; color: #fff; border-radius: 10px; padding: 0 7px; font-size: 12px; display: none; }
   #chatBody { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  #msgs { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+  #msgs { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 14px; display: flex; flex-direction: column; gap: 4px;
+          -webkit-user-select: text; user-select: text; }
   .msg { word-wrap: break-word; line-height: 1.35; }
   .msg .who { font-weight: 700; margin-right: 4px; }
   .msg .modtag { background: #2a7; color: #fff; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 1px 4px; margin-right: 4px; }
@@ -64,8 +85,8 @@
   #modPanel h4 { margin: 14px 0 6px; font-size: 14px; }
   #modPanel .row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
   #modPanel .row input { width: 100%; }
-  #modPanel input.n { width: 60px; }
   #modPanel .row input[type=checkbox] { width: auto; }
+  #modPanel input.n { width: 60px; }
   #banList { display: flex; flex-direction: column; gap: 4px; }
   .ban { display: flex; justify-content: space-between; align-items: center; background: #f5f5f5; border-radius: 6px; padding: 4px 8px; }
 
@@ -83,9 +104,10 @@
                padding: 8px; font-weight: 600; display: none; z-index: 5; }
 
   @media (max-width: 760px) {
-    #chat { width: calc(100vw - 24px); height: 260px; bottom: auto; top: 60px; }
-    #top .hint { display: none; }
+    #chat { width: calc(100vw - 24px); height: 240px; bottom: auto; top: 60px; }
     #modPanel { left: 12px; right: 12px; width: auto; top: 60px; }
+    #palette { grid-template-columns: repeat(8, 34px); gap: 6px; }
+    .swatch { width: 34px; height: 34px; }
   }
 </style>
 </head>
@@ -100,13 +122,16 @@
   <button id="modBtn" title="Modération" hidden>🛡️</button>
 </div>
 
+<div id="bubble"><div id="bubbleText"></div><div id="bubbleMod" hidden></div></div>
+
 <div id="bottom" class="bar">
-  <div id="info"><span class="muted">Clique sur un pixel pour le sélectionner</span></div>
-  <div id="pixelMod" hidden></div>
-  <div id="palette"></div>
-  <div id="actions">
-    <button id="cancelBtn" class="grey" hidden>Annuler</button>
-    <button id="placeBtn" disabled>Placer</button>
+  <button id="placeBtn">Placer un pixel</button>
+  <div id="picker">
+    <div id="palette"></div>
+    <div id="pickActions">
+      <button id="noBtn" title="Annuler (Échap)">✕</button>
+      <button id="okBtn" title="Placer (Entrée)">✓</button>
+    </div>
   </div>
 </div>
 
@@ -184,6 +209,7 @@
     get: k => { try { return localStorage.getItem(k); } catch { return null; } },
     set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
   };
+  const typing = () => ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
   let toastTimer;
   function toast(text) {
     $("toast").textContent = text; $("toast").style.display = "block";
@@ -209,7 +235,7 @@
   $("me").onclick = askName;
   if (username) $("me").textContent = username; else askName();
 
-  // ---------- Image ----------
+  // ---------- Image de la toile ----------
   const off = document.createElement("canvas");
   off.width = W; off.height = H;
   const offCtx = off.getContext("2d");
@@ -219,20 +245,73 @@
     img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b; img.data[i + 3] = 255;
   }
 
-  // ---------- Affichage ----------
-  const canvas = $("board"), ctx = canvas.getContext("2d");
-  let scale = 4, offX = 0, offY = 0;
-  let hover = null, sel = null, color = 13, cooldownEnd = 0, isAdmin = false, banned = false;
+  // ---------- Caméra ----------
+  // cam.x / cam.y = case au centre de l'écran, cam.s = taille d'une case en pixels écran
+  const MIN_S = 0.5, MAX_S = 64, FOCUS_S = 24;
+  const cam = { x: W / 2, y: H / 2, s: 1 };
+  let anim = null;
+  const clampS = s => Math.min(MAX_S, Math.max(MIN_S, s));
+  const offX = () => innerWidth / 2 - cam.x * cam.s;
+  const offY = () => innerHeight / 2 - cam.y * cam.s;
+  const toScreen = (x, y) => ({ x: offX() + x * cam.s, y: offY() + y * cam.s });
+  function toCell(px, py) {
+    const x = Math.floor((px - offX()) / cam.s), y = Math.floor((py - offY()) / cam.s);
+    return x >= 0 && y >= 0 && x < W && y < H ? { x, y } : null;
+  }
+  function clampCam() {
+    cam.x = Math.min(W, Math.max(0, cam.x));
+    cam.y = Math.min(H, Math.max(0, cam.y));
+  }
+  // Zoom autour d'un point de l'écran (la case sous le doigt / la souris ne bouge pas)
+  function zoomAt(px, py, ns) {
+    ns = clampS(ns);
+    const wx = cam.x + (px - innerWidth / 2) / cam.s, wy = cam.y + (py - innerHeight / 2) / cam.s;
+    cam.s = ns;
+    cam.x = wx - (px - innerWidth / 2) / ns;
+    cam.y = wy - (py - innerHeight / 2) / ns;
+    clampCam();
+  }
+  // Déplacement animé de la caméra
+  function flyTo(x, y, s, ms = 380) {
+    anim = { t0: performance.now(), ms, from: { ...cam }, to: { x, y, s: clampS(s) } };
+    requestDraw();
+  }
+  function stepAnim(now) {
+    if (!anim) return false;
+    let t = Math.min(1, (now - anim.t0) / anim.ms);
+    const k = 1 - Math.pow(1 - t, 3);
+    const { from, to } = anim;
+    cam.s = from.s * Math.pow(to.s / from.s, k);
+    cam.x = from.x + (to.x - from.x) * k;
+    cam.y = from.y + (to.y - from.y) * k;
+    if (t >= 1) anim = null;
+    return true;
+  }
+  function fitView() {
+    cam.x = W / 2; cam.y = H / 2;
+    cam.s = clampS(Math.min(innerWidth / W, (innerHeight - 160) / H) * 0.95);
+  }
 
+  // ---------- Dessin ----------
+  const canvas = $("board"), ctx = canvas.getContext("2d");
+  let hover = null, sel = null, color = Number(store.get("place-color") ?? 13), picking = false;
+  let cooldownEnd = 0, isAdmin = false, banned = false, flashes = [];
+  let drawQueued = false;
+  function requestDraw() {
+    if (drawQueued) return;
+    drawQueued = true;
+    requestAnimationFrame(frame);
+  }
+  function frame(now) {
+    drawQueued = false;
+    const moving = stepAnim(now);
+    draw(now);
+    if (moving || flashes.length || picking) requestDraw();
+  }
   function resize() {
     canvas.width = innerWidth * devicePixelRatio;
     canvas.height = innerHeight * devicePixelRatio;
-    draw();
-  }
-  function center() {
-    scale = Math.max(1, Math.floor(Math.min(innerWidth, innerHeight) / Math.max(W, H) * 1.5));
-    offX = (innerWidth - W * scale) / 2;
-    offY = (innerHeight - H * scale) / 2;
+    requestDraw();
   }
   function zoneRect() {
     const v = ["zx1", "zy1", "zx2", "zy2"].map(id => $(id).value.trim());
@@ -240,148 +319,266 @@
     const [x1, y1, x2, y2] = v.map(Number);
     return { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1) + 1, h: Math.abs(y2 - y1) + 1 };
   }
-  function draw() {
+  function drawReticle(sx, sy, s, now) {
+    const pad = Math.max(3, s * 0.18), len = Math.max(5, s * 0.42), lw = Math.max(2, Math.min(5, s / 8));
+    const x0 = sx - pad, y0 = sy - pad, x1 = sx + s + pad, y1 = sy + s + pad;
+    const corners = [[x0, y0, 1, 1], [x1, y0, -1, 1], [x0, y1, 1, -1], [x1, y1, -1, -1]];
+    for (const [stroke, w] of [["#fff", lw + 3], ["#000", lw]]) {
+      ctx.strokeStyle = stroke; ctx.lineWidth = w; ctx.lineCap = "square";
+      ctx.beginPath();
+      for (const [cx, cy, dx, dy] of corners) {
+        ctx.moveTo(cx + dx * len, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy + dy * len);
+      }
+      ctx.stroke();
+    }
+  }
+  function draw(now = performance.now()) {
     ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     ctx.fillStyle = "#ddd";
     ctx.fillRect(0, 0, innerWidth, innerHeight);
+    const ox = offX(), oy = offY(), s = cam.s;
+    ctx.fillStyle = "#0002";
+    ctx.fillRect(ox + 3, oy + 3, W * s, H * s);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(off, offX, offY, W * scale, H * scale);
+    ctx.drawImage(off, ox, oy, W * s, H * s);
+
     const z = zoneRect();
     if (z) {
       ctx.fillStyle = "rgba(229,0,0,.25)";
-      ctx.fillRect(offX + z.x * scale, offY + z.y * scale, z.w * scale, z.h * scale);
+      ctx.fillRect(ox + z.x * s, oy + z.y * s, z.w * s, z.h * s);
       ctx.strokeStyle = "#e50000"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
-      ctx.strokeRect(offX + z.x * scale, offY + z.y * scale, z.w * scale, z.h * scale);
+      ctx.strokeRect(ox + z.x * s, oy + z.y * s, z.w * s, z.h * s);
       ctx.setLineDash([]);
     }
-    if (sel) {
-      const sx = offX + sel.x * scale, sy = offY + sel.y * scale;
-      ctx.fillStyle = palette[color];
-      ctx.globalAlpha = 0.7;
-      ctx.fillRect(sx, sy, scale, scale);
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = Math.max(2, scale / 6);
-      ctx.strokeStyle = "#000";
-      ctx.strokeRect(sx - ctx.lineWidth / 2, sy - ctx.lineWidth / 2, scale + ctx.lineWidth, scale + ctx.lineWidth);
-    } else if (hover) {
-      ctx.strokeStyle = "#0008";
-      ctx.lineWidth = Math.max(1, scale / 10);
-      ctx.strokeRect(offX + hover.x * scale, offY + hover.y * scale, scale, scale);
+
+    // Effet quand un pixel vient d'être posé
+    flashes = flashes.filter(f => now - f.t < 450);
+    for (const f of flashes) {
+      const k = (now - f.t) / 450, sx = ox + f.x * s, sy = oy + f.y * s, g = s * (0.2 + k * 1.6);
+      ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = Math.max(2, s / 6);
+      ctx.strokeRect(sx - g, sy - g, s + 2 * g, s + 2 * g);
     }
-  }
-  function toCell(cx, cy) {
-    const x = Math.floor((cx - offX) / scale), y = Math.floor((cy - offY) / scale);
-    return x >= 0 && y >= 0 && x < W && y < H ? { x, y } : null;
+
+    if (hover && !sel && s >= 4) {
+      ctx.strokeStyle = "#0006"; ctx.lineWidth = 1;
+      ctx.strokeRect(ox + hover.x * s + 0.5, oy + hover.y * s + 0.5, s - 1, s - 1);
+    }
+    if (sel) {
+      const sx = ox + sel.x * s, sy = oy + sel.y * s;
+      if (picking) {
+        // Aperçu de la couleur choisie, qui pulse doucement
+        ctx.globalAlpha = 0.75 + 0.25 * Math.sin(now / 180);
+        ctx.fillStyle = palette[color];
+        ctx.fillRect(sx, sy, s, s);
+        ctx.globalAlpha = 1;
+      }
+      drawReticle(sx, sy, s, now);
+    }
+    positionBubble();
   }
 
-  // ---------- Infos du pixel ----------
+  // ---------- Bulle d'info ----------
   function ago(t) {
     const s = Math.round((Date.now() - t) / 1000);
     if (s < 60) return `il y a ${s} s`;
     if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
     if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
-    return new Date(t).toLocaleString("fr-FR");
+    return "le " + new Date(t).toLocaleDateString("fr-FR");
   }
   let infoReq = 0, selAuthor = null;
+  function positionBubble() {
+    const b = $("bubble");
+    if (!sel) { b.style.display = "none"; return; }
+    const p = toScreen(sel.x + 0.5, sel.y);
+    const pad = Math.max(3, cam.s * 0.18);
+    if (p.x < 0 || p.x > innerWidth || p.y < 0 || p.y > innerHeight) { b.style.display = "none"; return; }
+    b.style.display = "block";
+    b.style.left = p.x + "px";
+    b.style.top = (p.y - pad - 10) + "px";
+  }
   async function showInfo() {
-    selAuthor = null; renderPixelMod();
-    if (!sel) { $("info").innerHTML = '<span class="muted">Clique sur un pixel pour le sélectionner</span>'; return; }
+    selAuthor = null; renderBubbleMod();
+    if (!sel) return positionBubble();
     const req = ++infoReq, { x, y } = sel;
-    $("info").innerHTML = `<span class="muted">(${x}, ${y}) · chargement…</span>`;
+    $("bubbleText").innerHTML = `<span class="muted">(${x}, ${y})</span>`;
+    positionBubble();
     const p = await (await fetch(`/pixel?x=${x}&y=${y}`)).json();
     if (req !== infoReq) return;
     if (p.empty) {
-      $("info").innerHTML = `<span class="muted">(${x}, ${y}) · personne n'a encore posé ici</span>`;
+      $("bubbleText").innerHTML = `<span class="muted">(${x}, ${y}) · case vide</span>`;
     } else {
       selAuthor = p.user;
-      $("info").innerHTML = `(${x}, ${y}) · posé par <b>${esc(p.user)}</b> <span class="muted">${ago(p.placedAt)} · ${p.userTotal} pixel${p.userTotal > 1 ? "s" : ""} au total</span>`;
+      $("bubbleText").innerHTML = `<b>${esc(p.user)}</b> <span class="muted">· ${ago(p.placedAt)}</span><br><span class="muted">(${x}, ${y})</span>`;
     }
-    renderPixelMod();
+    renderBubbleMod(); positionBubble();
   }
-  function renderPixelMod() {
-    const box = $("pixelMod");
+  function renderBubbleMod() {
+    const box = $("bubbleMod");
     box.hidden = !(isAdmin && selAuthor);
     if (box.hidden) return;
     box.innerHTML = "";
-    const b1 = document.createElement("button"); b1.className = "small red"; b1.textContent = `Bannir ${selAuthor}`;
+    const b1 = document.createElement("button"); b1.className = "small red"; b1.textContent = "Bannir";
     b1.onclick = () => askBan(selAuthor);
     const b2 = document.createElement("button"); b2.className = "small grey"; b2.textContent = "Annuler ses pixels";
     b2.onclick = () => askRollback(selAuthor);
     box.append(b1, b2);
   }
-  function select(cell) {
-    sel = cell;
-    $("cancelBtn").hidden = !sel;
-    showInfo(); updateButton(); draw();
-  }
-  $("cancelBtn").onclick = () => select(null);
 
-  // ---------- Palette ----------
+  // ---------- Sélection ----------
+  function select(cell, { focus = true } = {}) {
+    sel = cell;
+    if (!sel) closePicker();
+    $("coords").textContent = sel ? `(${sel.x}, ${sel.y})` : hover ? `(${hover.x}, ${hover.y})` : "(–, –)";
+    if (sel && focus) flyTo(sel.x + 0.5, sel.y + 0.5, Math.max(cam.s, FOCUS_S));
+    showInfo(); updateBottom(); requestDraw();
+  }
+  function moveSel(dx, dy) {
+    if (!sel) return;
+    const x = Math.min(W - 1, Math.max(0, sel.x + dx)), y = Math.min(H - 1, Math.max(0, sel.y + dy));
+    select({ x, y }, { focus: false });
+    const p = toScreen(x + 0.5, y + 0.5);
+    if (p.x < 80 || p.y < 80 || p.x > innerWidth - 80 || p.y > innerHeight - 200) flyTo(x + 0.5, y + 0.5, cam.s, 200);
+  }
+
+  // ---------- Palette et bouton Placer ----------
   palette.forEach((col, i) => {
     const s = document.createElement("div");
-    s.className = "swatch" + (i === color ? " sel" : "");
+    s.className = "swatch";
     s.style.background = col;
-    s.onclick = () => {
-      color = i;
-      document.querySelectorAll(".swatch").forEach((e, j) => e.classList.toggle("sel", j === i));
-      draw();
-    };
+    s.title = col;
+    s.onclick = () => setColor(i);
     $("palette").appendChild(s);
   });
+  function setColor(i) {
+    color = i;
+    store.set("place-color", i);
+    document.querySelectorAll(".swatch").forEach((e, j) => e.classList.toggle("sel", j === i));
+    requestDraw();
+  }
+  setColor(color);
 
-  // ---------- Souris / tactile ----------
-  let dragging = false, moved = false, lastX = 0, lastY = 0;
+  function canPlace() { return ws && ws.readyState === 1 && !(banned && !isAdmin) && Date.now() >= cooldownEnd; }
+  function openPicker() {
+    if (!username) return askName();
+    if (!canPlace()) return;
+    if (!sel) select(toCell(innerWidth / 2, innerHeight / 2) || { x: W >> 1, y: H >> 1 });
+    else if (cam.s < FOCUS_S / 2) flyTo(sel.x + 0.5, sel.y + 0.5, FOCUS_S);
+    picking = true;
+    $("bottom").classList.add("picking");
+    requestDraw();
+  }
+  function closePicker() {
+    picking = false;
+    $("bottom").classList.remove("picking");
+    requestDraw();
+  }
+  function confirmPlace() {
+    if (!picking || !sel || !canPlace()) return;
+    wsSend({ type: "place", x: sel.x, y: sel.y, c: color, user: username });
+    flashes.push({ x: sel.x, y: sel.y, t: performance.now() });
+    closePicker();
+  }
+  $("placeBtn").onclick = openPicker;
+  $("noBtn").onclick = closePicker;
+  $("okBtn").onclick = confirmPlace;
+
+  function updateBottom() {
+    const btn = $("placeBtn");
+    btn.classList.remove("wait", "banned");
+    if (!ws || ws.readyState !== 1) { btn.textContent = "Connexion…"; btn.classList.add("wait"); }
+    else if (banned && !isAdmin) { btn.textContent = "Banni"; btn.classList.add("banned"); }
+    else {
+      const left = cooldownEnd - Date.now();
+      if (left > 0) {
+        const s = Math.ceil(left / 1000);
+        btn.textContent = `⏳ ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+        btn.classList.add("wait");
+      } else btn.textContent = "Placer un pixel";
+    }
+    if (picking && !canPlace()) closePicker();
+  }
+
+  // ---------- Souris, doigts, clavier ----------
+  const pointers = new Map();
+  let moved = false, pinch = null, downAt = null;
   canvas.addEventListener("pointerdown", e => {
-    dragging = true; moved = false; lastX = e.clientX; lastY = e.clientY;
     canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    anim = null;
+    if (pointers.size === 1) { moved = false; downAt = { x: e.clientX, y: e.clientY }; }
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+      moved = true;
+    }
   });
   canvas.addEventListener("pointermove", e => {
-    if (dragging) {
-      const dx = e.clientX - lastX, dy = e.clientY - lastY;
-      if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
-      if (moved) { offX += dx; offY += dy; lastX = e.clientX; lastY = e.clientY; }
+    if (e.pointerType === "mouse") {
+      hover = toCell(e.clientX, e.clientY);
+      if (!sel) $("coords").textContent = hover ? `(${hover.x}, ${hover.y})` : "(–, –)";
     }
-    hover = toCell(e.clientX, e.clientY);
-    $("coords").textContent = hover ? `(${hover.x}, ${hover.y})` : "(–, –)";
-    draw();
+    const prev = pointers.get(e.pointerId);
+    if (!prev) { requestDraw(); return; }
+    const cur = { x: e.clientX, y: e.clientY };
+    pointers.set(e.pointerId, cur);
+    if (pointers.size >= 2 && pinch) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      cam.x -= (mx - pinch.mx) / cam.s; cam.y -= (my - pinch.my) / cam.s;
+      zoomAt(mx, my, cam.s * d / pinch.d);
+      pinch = { d, mx, my };
+    } else if (pointers.size === 1) {
+      if (!moved && Math.hypot(cur.x - downAt.x, cur.y - downAt.y) > 6) { moved = true; canvas.classList.add("grab"); }
+      if (moved) { cam.x -= (cur.x - prev.x) / cam.s; cam.y -= (cur.y - prev.y) / cam.s; clampCam(); }
+    }
+    requestDraw();
   });
-  canvas.addEventListener("pointerup", () => {
-    dragging = false;
-    if (!moved && hover) select(hover);
-  });
+  function pointerEnd(e) {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinch = null;
+    if (pointers.size === 0) {
+      canvas.classList.remove("grab");
+      if (!moved && e.type === "pointerup") {
+        const c = toCell(e.clientX, e.clientY);
+        if (c) select(c);
+        else select(null);
+      }
+    }
+  }
+  canvas.addEventListener("pointerup", pointerEnd);
+  canvas.addEventListener("pointercancel", pointerEnd);
+  canvas.addEventListener("pointerleave", () => { hover = null; requestDraw(); });
   canvas.addEventListener("wheel", e => {
     e.preventDefault();
-    const ns = Math.min(64, Math.max(0.5, scale * (e.deltaY < 0 ? 1.25 : 0.8)));
-    offX = e.clientX - (e.clientX - offX) * (ns / scale);
-    offY = e.clientY - (e.clientY - offY) * (ns / scale);
-    scale = ns;
-    draw();
+    anim = null;
+    const dy = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
+    zoomAt(e.clientX, e.clientY, cam.s * Math.exp(-dy * 0.0022));
+    requestDraw();
   }, { passive: false });
+  canvas.addEventListener("dblclick", e => {
+    const c = toCell(e.clientX, e.clientY);
+    if (c) flyTo(c.x + 0.5, c.y + 0.5, cam.s * 2.5);
+  });
   addEventListener("keydown", e => {
-    if (e.key === "Escape" && document.activeElement.tagName !== "INPUT") select(null);
+    if (typing() || document.querySelector(".modal.show")) return;
+    const k = e.key;
+    if (k === "Escape") { picking ? closePicker() : select(null); }
+    else if (k === "Enter" || k === " ") { e.preventDefault(); picking ? confirmPlace() : openPicker(); }
+    else if (k.startsWith("Arrow")) {
+      e.preventDefault();
+      const step = e.shiftKey ? 10 : 1;
+      if (!sel) select(toCell(innerWidth / 2, innerHeight / 2));
+      else moveSel(k === "ArrowLeft" ? -step : k === "ArrowRight" ? step : 0, k === "ArrowUp" ? -step : k === "ArrowDown" ? step : 0);
+    }
+    else if (picking && /^[1-9]$/.test(k)) setColor(Number(k) - 1);
+    else if (k === "+" || k === "=") flyTo(cam.x, cam.y, cam.s * 1.6, 200);
+    else if (k === "-") flyTo(cam.x, cam.y, cam.s / 1.6, 200);
   });
 
-  // ---------- Placer ----------
+  // ---------- Réseau ----------
   let ws;
   const wsSend = obj => ws && ws.readyState === 1 && ws.send(JSON.stringify(obj));
-  function updateButton() {
-    const left = cooldownEnd - Date.now();
-    const btn = $("placeBtn");
-    if (!ws || ws.readyState !== 1) { btn.disabled = true; btn.textContent = "Connexion…"; }
-    else if (banned && !isAdmin) { btn.disabled = true; btn.textContent = "Banni"; }
-    else if (left > 0) {
-      btn.disabled = true;
-      const s = Math.ceil(left / 1000);
-      btn.textContent = s >= 60 ? `Attends ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `Attends ${s} s`;
-    }
-    else if (!sel) { btn.disabled = true; btn.textContent = "Choisis un pixel"; }
-    else { btn.disabled = false; btn.textContent = "Placer"; }
-  }
-  $("placeBtn").onclick = () => {
-    if (!username) return askName();
-    if (!sel || Date.now() < cooldownEnd) return;
-    wsSend({ type: "place", x: sel.x, y: sel.y, c: color, user: username });
-  };
 
   // ---------- Chat ----------
   const msgsEl = $("msgs");
@@ -427,7 +624,7 @@
   // ---------- Modération ----------
   $("modBtn").hidden = !cfg.modEnabled;
   $("modBtn").onclick = () => {
-    if (isAdmin) { $("modPanel").classList.toggle("open"); draw(); }
+    if (isAdmin) { $("modPanel").classList.toggle("open"); requestDraw(); }
     else { $("pwErr").textContent = ""; $("loginModal").classList.add("show"); $("pwInput").focus(); }
   };
   $("pwCancel").onclick = () => $("loginModal").classList.remove("show");
@@ -435,10 +632,7 @@
     e.preventDefault();
     wsSend({ type: "auth", password: $("pwInput").value });
   };
-  $("logoutBtn").onclick = () => {
-    store.set("place-mod", null);
-    location.reload();
-  };
+  $("logoutBtn").onclick = () => { store.set("place-mod", null); location.reload(); };
   function askBan(user) {
     const reason = prompt(`Bannir « ${user} » ?\nRaison (facultatif) :`, "");
     if (reason === null) return;
@@ -455,9 +649,9 @@
     $("banName").value = ""; $("banReason").value = "";
   };
   $("rbBtn").onclick = () => { const u = $("rbName").value.trim(); if (u) askRollback(u); };
-  $("corner1").onclick = () => { if (sel) { $("zx1").value = sel.x; $("zy1").value = sel.y; draw(); } else toast("Sélectionne d'abord un pixel"); };
-  $("corner2").onclick = () => { if (sel) { $("zx2").value = sel.x; $("zy2").value = sel.y; draw(); } else toast("Sélectionne d'abord un pixel"); };
-  ["zx1", "zy1", "zx2", "zy2"].forEach(id => $(id).oninput = draw);
+  $("corner1").onclick = () => { if (sel) { $("zx1").value = sel.x; $("zy1").value = sel.y; requestDraw(); } else toast("Sélectionne d'abord un pixel"); };
+  $("corner2").onclick = () => { if (sel) { $("zx2").value = sel.x; $("zy2").value = sel.y; requestDraw(); } else toast("Sélectionne d'abord un pixel"); };
+  ["zx1", "zy1", "zx2", "zy2"].forEach(id => $(id).oninput = requestDraw);
   $("clearZoneBtn").onclick = () => {
     const z = zoneRect();
     if (!z) return toast("Remplis les deux coins de la zone");
@@ -486,20 +680,20 @@
     isAdmin = on;
     document.body.classList.toggle("admin", on);
     if (on) $("modPanel").classList.add("open");
-    renderPixelMod(); updateButton(); draw();
+    renderBubbleMod(); updateBottom(); requestDraw();
   }
 
-  // ---------- Réseau ----------
+  // ---------- Connexion au serveur ----------
   function connect() {
     ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host);
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
-      $("conn").classList.add("on"); updateButton();
+      $("conn").classList.add("on"); updateBottom();
       const pw = store.get("place-mod");
-      if (pw) wsSend({ type: "auth", password: pw, silent: true });
+      if (pw) wsSend({ type: "auth", password: pw });
     };
     ws.onclose = () => {
-      $("conn").classList.remove("on"); updateButton();
+      $("conn").classList.remove("on"); updateBottom();
       setTimeout(connect, 2000);
     };
     ws.onmessage = ev => {
@@ -507,7 +701,7 @@
         const g = new Uint8Array(ev.data);
         for (let i = 0; i < g.length; i++) setPixel(i % W, (i / W) | 0, g[i]);
         offCtx.putImageData(img, 0, 0);
-        draw();
+        requestDraw();
         if (sel) showInfo();
         return;
       }
@@ -517,9 +711,9 @@
           setPixel(m.x, m.y, m.c);
           offCtx.putImageData(img, 0, 0, m.x, m.y, 1, 1);
           if (sel && sel.x === m.x && sel.y === m.y) showInfo();
-          draw();
+          requestDraw();
           break;
-        case "cooldown": cooldownEnd = Date.now() + m.wait; updateButton(); break;
+        case "cooldown": cooldownEnd = Date.now() + m.wait; updateBottom(); break;
         case "online": $("online").textContent = m.count; break;
         case "error":
           toast(m.message);
@@ -551,15 +745,15 @@
           break;
         case "bans": renderBans(m.list); break;
         case "notice": toast(m.text); break;
-        case "banned": banned = true; $("bannedBar").style.display = "block"; updateButton(); break;
-        case "unbanned": if (banned) { banned = false; $("bannedBar").style.display = "none"; updateButton(); } break;
+        case "banned": banned = true; $("bannedBar").style.display = "block"; updateBottom(); break;
+        case "unbanned": if (banned) { banned = false; $("bannedBar").style.display = "none"; updateBottom(); } break;
       }
     };
   }
-  setInterval(updateButton, 250);
+  setInterval(updateBottom, 250);
 
   addEventListener("resize", resize);
-  center(); resize(); connect();
+  fitView(); resize(); connect();
 })();
 </script>
 </body>

@@ -124,6 +124,7 @@ Le fichier `place.db` doit être sur un disque permanent : sur Railway, ajoute u
 
 Le numéro de version s'affiche en bas à droite du site.
 
+- **v0.15** : bruitage quand on pose un pixel (bouton 🔊/🔇), viseur plus serré
 - **v0.14** : overlay pour les joueurs (image affichée par-dessus la toile pour recopier un dessin)
 - **v0.13** : outil modo « Dessiner une image » (aperçu, taille, vitesse, suivi et arrêt)
 - **v0.12** : sécurité renforcée (limites de connexions, de débit et de requêtes, compression, prise en charge de Cloudflare)

@@ -17,7 +17,9 @@ Ouvre ensuite http://localhost:3000.
 
 1. Choisis un pseudo (il s'affiche sur chaque pixel que tu poses ; clique dessus en haut pour le changer).
 2. Clique sur un pixel pour le sélectionner : tu vois qui l'a posé, quand, et combien de pixels cette personne a posés au total.
-3. Choisis une couleur, puis appuie sur **Placer**.
+3. Appuie sur **Placer un pixel**, choisis une couleur, puis ✓.
+
+**Au clavier (ordinateur)** : survole un pixel avec la souris et appuie sur la lettre de la couleur (A Z E R T Y U I / Q S D F G H J K sur un clavier français) : le pixel est posé directement. Les flèches déplacent le viseur, Entrée pose, Échap annule.
 
 - Molette : zoomer
 - Cliquer-glisser : se déplacer
@@ -59,7 +61,7 @@ Pour regarder dedans, tu peux utiliser [DB Browser for SQLite](https://sqlitebro
 ## Réglages (dans `server.js`)
 
 - `WIDTH` / `HEIGHT` : taille de la grille
-- `COOLDOWN_MS` : délai entre deux pixels (5 s par défaut ; 5 minutes = `300000`)
+- `COOLDOWN_MS` : délai entre deux pixels (1 s par défaut ; 5 minutes = `300000`)
 - `PALETTE` : les couleurs
 
 ## Limites actuelles
